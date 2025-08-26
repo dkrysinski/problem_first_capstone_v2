@@ -10,7 +10,7 @@ import os
 import os.path as osp
 import time
 
-from .prompts import RAG_PROMPT
+from .prompts import RAG_PROMPT, CLASSIFICATION_PROMPT, NIS2_PROMPT, DORA_PROMPT, CER_PROMPT, SYNTHESIS_PROMPT
 
 # Opik tracing imports
 try:
@@ -23,7 +23,17 @@ except ImportError:
 class AgentState(TypedDict):
     question: str
     retrieved_docs: list[Document]
+    gdpr_docs: list[Document]
+    nis2_docs: list[Document]
+    dora_docs: list[Document]
+    cer_docs: list[Document]
     answer: str
+    gdpr: bool
+    nis2: bool
+    dora: bool
+    cer: bool
+    is_off_topic: bool
+    rejection_reason: str
     
 class RagGenerationResponse(BaseModel):
     """Response to the question with answer and sources. Sources are
@@ -35,9 +45,32 @@ class RagGenerationResponse(BaseModel):
         default_factory=list
     )
 
+class RegulationAssessment(BaseModel):
+    """Assessment for a single regulation."""
+    applies: bool = Field(description="Whether the regulation applies to this business case.")
+    confidence: float = Field(description="Confidence level between 0 and 1.")
+    explanation: str = Field(description="Brief explanation of why the regulation applies or doesn't apply.")
 
-FILE_PATH = "/home/dan/capstone_project/data/GDPR_Regulation.pdf"
-VECTOR_STORE_PATH = "/home/dan/capstone_project/data/vector_store"
+class ClassificationResponse(BaseModel):
+    """Response indicating which regulations apply with confidence and explanation."""
+    is_business_regulatory_question: bool = Field(description="Whether this question is about regulatory compliance for a business use case.")
+    question_type: str = Field(description="Type of question: 'business_regulatory', 'off_topic', or 'unclear'")
+    rejection_reason: str = Field(description="If off-topic, brief explanation of why this question cannot be answered.", default="")
+    GDPR: RegulationAssessment = Field(description="GDPR regulation assessment.")
+    NIS2: RegulationAssessment = Field(description="NIS2 regulation assessment.")
+    DORA: RegulationAssessment = Field(description="DORA regulation assessment.")
+    CER: RegulationAssessment = Field(description="CER regulation assessment.")
+
+
+GDPR_FILE_PATH = "/home/dan/capstone_project/data/GDPR_Regulation.pdf"
+NIS2_FILE_PATH = "/home/dan/capstone_project/data/NIS2_Regulation.pdf"
+DORA_FILE_PATH = "/home/dan/capstone_project/data/DORA_Regulation.pdf"
+CER_FILE_PATH = "/home/dan/capstone_project/data/CER_Regulation.pdf"
+
+GDPR_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/gdpr_vector_store"
+NIS2_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/nis2_vector_store" 
+DORA_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/dora_vector_store"
+CER_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/cer_vector_store"
 
 class AIAgent:
     def __init__(self):
@@ -88,41 +121,115 @@ class AIAgent:
         self.llm = AzureChatOpenAI(
             azure_deployment = "gpt-4.1-maven-course",
             api_version = "2024-12-01-preview",
-            temperature=0.2,
+            temperature=0.3,
             api_key=AZURE_OPENAI_API_KEY,
             azure_endpoint=AZURE_OPENAI_ENDPOINT
         )
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         
-        # Check if vector store already exists
-        if os.path.exists(VECTOR_STORE_PATH):
-            print("📦 Loading existing vector store from disk...")
-            try:
-                self.vector_store = FAISS.load_local(VECTOR_STORE_PATH, self.embeddings, allow_dangerous_deserialization=True)
-                print("✅ Vector store loaded successfully!")
-            except Exception as e:
-                print(f"❌ Error loading vector store: {e}")
-                print("🔄 Creating new vector store...")
-                self._create_new_vector_store()
-        else:
-            print("🔄 No existing vector store found. Creating new one...")
-            self._create_new_vector_store()
+        # Initialize vector stores for each framework
+        self.gdpr_vector_store = self._load_or_create_vector_store("GDPR", GDPR_VECTOR_STORE_PATH, GDPR_FILE_PATH)
+        self.nis2_vector_store = self._load_or_create_vector_store("NIS2", NIS2_VECTOR_STORE_PATH, NIS2_FILE_PATH)
+        self.dora_vector_store = self._load_or_create_vector_store("DORA", DORA_VECTOR_STORE_PATH, DORA_FILE_PATH)
+        self.cer_vector_store = self._load_or_create_vector_store("CER", CER_VECTOR_STORE_PATH, CER_FILE_PATH)
+        
+        # For backward compatibility, set the main vector store to GDPR
+        self.vector_store = self.gdpr_vector_store
                 
         graph = StateGraph(AgentState)
         
-        graph.add_node("retrieval", self._create_retrieval_node)
+        # Add all nodes
+        graph.add_node("classification", self._create_classification_node)
+        graph.add_node("gdpr_analysis", self._create_gdpr_analysis_node)
+        graph.add_node("nis2_analysis", self._create_nis2_analysis_node)
+        graph.add_node("dora_analysis", self._create_dora_analysis_node)
+        graph.add_node("cer_analysis", self._create_cer_analysis_node)
+        graph.add_node("synthesis", self._create_synthesis_node)
         graph.add_node("answering", self._create_answering_node)
+        graph.add_node("rejection", self._create_rejection_node)
         
-        graph.add_edge(START, "retrieval")
-        graph.add_edge("retrieval", "answering")
+        # Start with classification
+        graph.add_edge(START, "classification")
+        
+        # Use conditional edges to route to applicable framework analysis or rejection
+        graph.add_conditional_edges(
+            "classification",
+            self._route_to_applicable_frameworks,
+            {
+                "gdpr_analysis": "gdpr_analysis",
+                "nis2_analysis": "nis2_analysis", 
+                "dora_analysis": "dora_analysis",
+                "cer_analysis": "cer_analysis",
+                "rejection": "rejection"
+            }
+        )
+        
+        # All analysis nodes feed into synthesis
+        graph.add_edge("gdpr_analysis", "synthesis")
+        graph.add_edge("nis2_analysis", "synthesis")
+        graph.add_edge("dora_analysis", "synthesis")
+        graph.add_edge("cer_analysis", "synthesis")
+        
+        # Synthesis feeds into answering, then end
+        graph.add_edge("synthesis", "answering")
         graph.add_edge("answering", END)
+        
+        # Rejection goes directly to end
+        graph.add_edge("rejection", END)
         
         self.graph = graph.compile()
     
-    def _create_new_vector_store(self) -> None:
-        """Create a new vector store and save it to disk"""
-        docs = self._load_and_process_documents()
+    def _load_or_create_vector_store(self, framework_name: str, store_path: str, file_path: str):
+        """Load existing vector store or create new one for a specific framework"""
+        if os.path.exists(store_path):
+            print(f"📦 Loading existing {framework_name} vector store from disk...")
+            try:
+                vector_store = FAISS.load_local(store_path, self.embeddings, allow_dangerous_deserialization=True)
+                print(f"✅ {framework_name} vector store loaded successfully!")
+                return vector_store
+            except Exception as e:
+                print(f"❌ Error loading {framework_name} vector store: {e}")
+                print(f"🔄 Creating new {framework_name} vector store...")
+                return self._create_framework_vector_store(framework_name, store_path, file_path)
+        else:
+            print(f"🔄 No existing {framework_name} vector store found. Creating new one...")
+            return self._create_framework_vector_store(framework_name, store_path, file_path)
+    
+    def _create_framework_vector_store(self, framework_name: str, store_path: str, file_path: str):
+        """Create a new vector store for a specific regulatory framework"""
+        docs = self._load_and_process_documents(file_path, framework_name)
         
+        if not docs:
+            print(f"⚠️ No documents found for {framework_name}, creating empty store")
+            # Create minimal vector store with placeholder
+            placeholder_doc = Document(page_content=f"{framework_name} placeholder document", metadata={"source": file_path, "framework": framework_name})
+            docs = [placeholder_doc]
+        
+        # Print first document content for debugging
+        print(f"First {framework_name} document content type: {type(docs[0].page_content)}")
+        print(f"First {framework_name} document content (first 100 chars): {docs[0].page_content[:100]}")
+        
+        # Create vector store from documents
+        print(f"🚀 Creating {framework_name} vector store from documents...")
+        try:
+            vector_store = FAISS.from_documents(docs, self.embeddings)
+            print(f"💾 Saving {framework_name} vector store to disk...")
+            vector_store.save_local(store_path)
+            print(f"✅ {framework_name} vector store created and saved successfully!")
+            return vector_store
+        except Exception as e:
+            print(f"❌ Error creating {framework_name} vector store: {e}")
+            # Fallback to batch processing if bulk creation fails
+            return self._create_vector_store_batch_processing(docs, store_path, framework_name)
+    
+    def _create_new_vector_store(self) -> None:
+        """Create a new vector store and save it to disk (legacy method for backward compatibility)"""
+        docs = self._load_and_process_documents(GDPR_FILE_PATH, "GDPR")
+        
+        if not docs:
+            print("⚠️ No documents found for GDPR")
+            return
+            
         # Print first document content for debugging
         print(f"First document content type: {type(docs[0].page_content)}")
         print(f"First document content (first 100 chars): {docs[0].page_content[:100]}")
@@ -132,17 +239,17 @@ class AIAgent:
         try:
             self.vector_store = FAISS.from_documents(docs, self.embeddings)
             print("💾 Saving vector store to disk...")
-            self.vector_store.save_local(VECTOR_STORE_PATH)
+            self.vector_store.save_local(GDPR_VECTOR_STORE_PATH)
             print("✅ Vector store created and saved successfully!")
         except Exception as e:
             print(f"❌ Error creating vector store: {e}")
             # Fallback to batch processing if bulk creation fails
-            self._create_vector_store_batch_processing(docs)
+            self._create_vector_store_batch_processing(docs, GDPR_VECTOR_STORE_PATH, "GDPR")
     
-    def _create_vector_store_batch_processing(self, docs: List[Document]) -> None:
+    def _create_vector_store_batch_processing(self, docs: List[Document], store_path: str = None, framework_name: str = "GDPR"):
         """Fallback method to create vector store with batch processing"""
-        print("🔄 Falling back to batch processing...")
-        self.vector_store = FAISS.from_documents([docs[0]], self.embeddings)  # Initialize with first doc
+        print(f"🔄 Falling back to batch processing for {framework_name}...")
+        vector_store = FAISS.from_documents([docs[0]], self.embeddings)  # Initialize with first doc
         
         batch_size = 100
         for i in range(1, len(docs), batch_size):
@@ -163,13 +270,13 @@ class AIAgent:
             
             if validated_batch:
                 try:
-                    self.vector_store.add_documents(validated_batch)
+                    vector_store.add_documents(validated_batch)
                 except Exception as e:
                     print(f"Error adding documents to vector store: {e}")
                     # Try adding documents one by one to isolate the problematic one
                     for j, doc in enumerate(validated_batch):
                         try:
-                            self.vector_store.add_documents([doc])
+                            vector_store.add_documents([doc])
                         except Exception as doc_error:
                             print(f"Failed to add document {i+j}: {doc_error}")
                             print(f"Document content type: {type(doc.page_content)}")
@@ -179,35 +286,50 @@ class AIAgent:
                 time.sleep(10)
         
         # Save the vector store after batch processing
-        print("💾 Saving vector store to disk...")
-        self.vector_store.save_local(VECTOR_STORE_PATH)
-        print("✅ Vector store created and saved successfully!")
+        save_path = store_path if store_path else GDPR_VECTOR_STORE_PATH
+        print(f"💾 Saving {framework_name} vector store to disk...")
+        vector_store.save_local(save_path)
+        print(f"✅ {framework_name} vector store created and saved successfully!")
+        return vector_store
     
-    def _load_and_process_documents(self) -> List[Document]:
-        """Load and process documents from the specified directory"""
+    def _load_and_process_documents(self, file_path: str = None, framework_name: str = "GDPR") -> List[Document]:
+        """Load and process documents from the specified file path"""
         from langchain_community.document_loaders import PyPDFLoader
         from langchain.text_splitter import RecursiveCharacterTextSplitter
         
+        if file_path is None:
+            file_path = GDPR_FILE_PATH  # Default to GDPR for backward compatibility
+            
         docs = []
         
-        print(f"Loading document from {FILE_PATH}")
-        loader = PyPDFLoader(FILE_PATH)
-        page_docs = loader.load()
+        if not os.path.exists(file_path):
+            print(f"⚠️ File not found: {file_path}")
+            return docs
         
-        combined_doc = "\n".join([doc.page_content for doc in page_docs])
+        print(f"Loading {framework_name} document from {file_path}")
+        try:
+            loader = PyPDFLoader(file_path)
+            page_docs = loader.load()
+            
+            combined_doc = "\n".join([doc.page_content for doc in page_docs])
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        chunks = text_splitter.split_text(combined_doc)
-        
-        # Filter out empty chunks and ensure they're strings
-        valid_chunks = [chunk for chunk in chunks if chunk and chunk.strip()]
-        
-        # Create documents with additional validation
-        for chunk in valid_chunks:
-            content = str(chunk).strip()
-            # Ensure content is not empty and is a valid string
-            if content and isinstance(content, str):
-                docs.append(Document(page_content=content, metadata={"source": FILE_PATH}))
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = text_splitter.split_text(combined_doc)
+            
+            # Filter out empty chunks and ensure they're strings
+            valid_chunks = [chunk for chunk in chunks if chunk and chunk.strip()]
+            
+            # Create documents with additional validation
+            for chunk in valid_chunks:
+                content = str(chunk).strip()
+                # Ensure content is not empty and is a valid string
+                if content and isinstance(content, str):
+                    docs.append(Document(page_content=content, metadata={"source": file_path, "framework": framework_name}))
+            
+            print(f"✅ Loaded {len(docs)} document chunks for {framework_name}")
+        except Exception as e:
+            print(f"❌ Error loading {framework_name} document: {e}")
+            
         return docs
     
     @track(name="document_retrieval")
@@ -248,9 +370,312 @@ class AIAgent:
         
         return {"retrieved_docs": docs}
     
+    @track(name="gdpr_analysis")
+    def _create_gdpr_analysis_node(self, state: AgentState):
+        print(f"\n🏛️ GDPR ANALYSIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        
+        # Retrieve GDPR documents
+        retriever = self.gdpr_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        docs = retriever.invoke(state["question"])
+        print(f"📄 GDPR analysis: {len(docs)} documents retrieved")
+        
+        # Generate GDPR-specific response
+        model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
+        chain = RAG_PROMPT | model_response_with_structure
+        
+        response = chain.invoke({
+            "retrieved_docs": docs,
+            "question": state["question"]
+        })
+        
+        # Tag documents with framework
+        for doc in docs:
+            doc.metadata["framework"] = "GDPR"
+            doc.metadata["analysis"] = response.answer
+        
+        return {"gdpr_docs": docs}
+    
+    @track(name="nis2_analysis")
+    def _create_nis2_analysis_node(self, state: AgentState):
+        print(f"\n🔒 NIS2 ANALYSIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        
+        # Retrieve NIS2 documents
+        retriever = self.nis2_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        docs = retriever.invoke(state["question"])
+        print(f"📄 NIS2 analysis: {len(docs)} documents retrieved")
+        
+        # Generate NIS2-specific response
+        model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
+        chain = NIS2_PROMPT | model_response_with_structure
+        
+        response = chain.invoke({
+            "retrieved_docs": docs,
+            "question": state["question"]
+        })
+        
+        # Tag documents with framework and analysis
+        for doc in docs:
+            doc.metadata["framework"] = "NIS2"
+            doc.metadata["analysis"] = response.answer
+        
+        return {"nis2_docs": docs}
+    
+    @track(name="dora_analysis")
+    def _create_dora_analysis_node(self, state: AgentState):
+        # Retrieve DORA documents
+        retriever = self.dora_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        docs = retriever.invoke(state["question"])
+        print(f"🏦 DORA analysis: {len(docs)} documents found")
+        
+        # Generate DORA-specific response
+        model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
+        chain = DORA_PROMPT | model_response_with_structure
+        
+        response = chain.invoke({
+            "retrieved_docs": docs,
+            "question": state["question"]
+        })
+        
+        # Tag documents with framework and analysis
+        for doc in docs:
+            doc.metadata["framework"] = "DORA"
+            doc.metadata["analysis"] = response.answer
+        
+        return {"dora_docs": docs}
+    
+    @track(name="cer_analysis")
+    def _create_cer_analysis_node(self, state: AgentState):
+        print(f"\n🏗️ CER ANALYSIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        
+        # Retrieve CER documents
+        retriever = self.cer_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        docs = retriever.invoke(state["question"])
+        print(f"📄 CER analysis: {len(docs)} documents retrieved")
+        
+        # Generate CER-specific response
+        model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
+        chain = CER_PROMPT | model_response_with_structure
+        
+        response = chain.invoke({
+            "retrieved_docs": docs,
+            "question": state["question"]
+        })
+        
+        # Tag documents with framework and analysis
+        for doc in docs:
+            doc.metadata["framework"] = "CER"
+            doc.metadata["analysis"] = response.answer
+        
+        return {"cer_docs": docs}
+    
+    def _route_to_applicable_frameworks(self, state: AgentState):
+        """Determine which framework analysis nodes should be executed based on classification"""
+        print(f"\n🚏 ROUTING DEBUG:")
+        
+        # Check if question was rejected as off-topic
+        if state.get("is_off_topic", False):
+            print(f"🚫 QUESTION REJECTED AS OFF-TOPIC")
+            print(f"❌ Rejection reason: {state.get('rejection_reason', 'Unknown')}")
+            return ["rejection"]
+        
+        print(f"📥 Input state booleans:")
+        print(f"   🏛️  GDPR: {state.get('gdpr', 'NOT_SET')}")
+        print(f"   🔒 NIS2: {state.get('nis2', 'NOT_SET')}")
+        print(f"   🏦 DORA: {state.get('dora', 'NOT_SET')}")
+        print(f"   🏗️  CER: {state.get('cer', 'NOT_SET')}")
+        
+        applicable_frameworks = []
+        
+        if state.get("gdpr", False):
+            applicable_frameworks.append("gdpr_analysis")
+            print(f"   ✅ Adding GDPR analysis")
+        else:
+            print(f"   ❌ Skipping GDPR analysis (value: {state.get('gdpr', 'NOT_SET')})")
+            
+        if state.get("nis2", False):
+            applicable_frameworks.append("nis2_analysis")
+            print(f"   ✅ Adding NIS2 analysis")
+        else:
+            print(f"   ❌ Skipping NIS2 analysis (value: {state.get('nis2', 'NOT_SET')})")
+            
+        if state.get("dora", False):
+            applicable_frameworks.append("dora_analysis")
+            print(f"   ✅ Adding DORA analysis")
+        else:
+            print(f"   ❌ Skipping DORA analysis (value: {state.get('dora', 'NOT_SET')})")
+            
+        if state.get("cer", False):
+            applicable_frameworks.append("cer_analysis")
+            print(f"   ✅ Adding CER analysis")
+        else:
+            print(f"   ❌ Skipping CER analysis (value: {state.get('cer', 'NOT_SET')})")
+        
+        # If no frameworks are applicable, default to GDPR
+        if not applicable_frameworks:
+            applicable_frameworks = ["gdpr_analysis"]
+            print(f"   🔄 No frameworks selected, defaulting to GDPR")
+            
+        print(f"\n🎯 FINAL ROUTING DECISION: {applicable_frameworks}")
+        return applicable_frameworks
+    
+    @track(name="classify_regulation_types")
+    def _create_classification_node(self, state: AgentState):
+        print(f"\n🔍 CLASSIFICATION DEBUG:")
+        print(f"📝 Input question: {state['question']}")
+        
+        prompt = CLASSIFICATION_PROMPT
+        
+        model_response_with_structure = self.llm.with_structured_output(ClassificationResponse)
+        chain = prompt | model_response_with_structure
+        
+        print(f"🤖 Sending to LLM for classification...")
+        response = chain.invoke({"question": state["question"]})
+        
+        # Check if question is off-topic first
+        print(f"\n🎯 TOPIC CLASSIFICATION:")
+        print(f"📋 Is business regulatory question: {response.is_business_regulatory_question}")
+        print(f"📋 Question type: {response.question_type}")
+        if response.rejection_reason:
+            print(f"❌ Rejection reason: {response.rejection_reason}")
+        
+        # If off-topic, return rejection result
+        if not response.is_business_regulatory_question:
+            print(f"\n🚫 REJECTING OFF-TOPIC QUESTION")
+            return {
+                "gdpr": False,
+                "nis2": False,
+                "dora": False,
+                "cer": False,
+                "is_off_topic": True,
+                "rejection_reason": response.rejection_reason
+            }
+        
+        # Debug each framework classification
+        print(f"\n📊 REGULATORY CLASSIFICATION RESULTS:")
+        print(f"🏛️  GDPR: applies={response.GDPR.applies}, confidence={response.GDPR.confidence:.2f}")
+        print(f"   └─ Explanation: {response.GDPR.explanation}")
+        print(f"🔒 NIS2: applies={response.NIS2.applies}, confidence={response.NIS2.confidence:.2f}")
+        print(f"   └─ Explanation: {response.NIS2.explanation}")
+        print(f"🏦 DORA: applies={response.DORA.applies}, confidence={response.DORA.confidence:.2f}")
+        print(f"   └─ Explanation: {response.DORA.explanation}")
+        print(f"🏗️  CER: applies={response.CER.applies}, confidence={response.CER.confidence:.2f}")
+        print(f"   └─ Explanation: {response.CER.explanation}")
+        
+        result = {
+            "gdpr": response.GDPR.applies,
+            "nis2": response.NIS2.applies,
+            "dora": response.DORA.applies,
+            "cer": response.CER.applies,
+            "is_off_topic": False,
+            "rejection_reason": ""
+        }
+        
+        print(f"\n✅ CLASSIFICATION FINAL RESULT: {result}")
+        return result
+    
+    @track(name="synthesis")
+    def _create_synthesis_node(self, state: AgentState):
+        """Combine all framework analyses and documents for final synthesis"""
+        print(f"\n🔄 SYNTHESIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        print(f"🗃️  Available state keys: {list(state.keys())}")
+        print(f"📊 Framework flags in state:")
+        print(f"   🏛️  GDPR: {state.get('gdpr', 'NOT_SET')}")
+        print(f"   🔒 NIS2: {state.get('nis2', 'NOT_SET')}")  
+        print(f"   🏦 DORA: {state.get('dora', 'NOT_SET')}")
+        print(f"   🏗️  CER: {state.get('cer', 'NOT_SET')}")
+        
+        all_docs = []
+        framework_analyses = []
+        
+        # Collect documents and analyses from each framework that was classified as applicable
+        if state.get("gdpr", False) and "gdpr_docs" in state:
+            gdpr_docs = state.get("gdpr_docs", [])
+            all_docs.extend(gdpr_docs)
+            if gdpr_docs and "analysis" in gdpr_docs[0].metadata:
+                framework_analyses.append(f"**GDPR Analysis:**\n{gdpr_docs[0].metadata['analysis']}")
+            print(f"✅ Added {len(gdpr_docs)} GDPR documents to synthesis")
+        else:
+            print(f"❌ No GDPR documents to add (gdpr={state.get('gdpr', 'NOT_SET')}, has_docs={'gdpr_docs' in state})")
+        
+        if state.get("nis2", False) and "nis2_docs" in state:
+            nis2_docs = state.get("nis2_docs", [])
+            all_docs.extend(nis2_docs)
+            if nis2_docs and "analysis" in nis2_docs[0].metadata:
+                framework_analyses.append(f"**NIS2 Analysis:**\n{nis2_docs[0].metadata['analysis']}")
+            print(f"✅ Added {len(nis2_docs)} NIS2 documents to synthesis")
+        else:
+            print(f"❌ No NIS2 documents to add (nis2={state.get('nis2', 'NOT_SET')}, has_docs={'nis2_docs' in state})")
+        
+        if state.get("dora", False) and "dora_docs" in state:
+            dora_docs = state.get("dora_docs", [])
+            all_docs.extend(dora_docs)
+            if dora_docs and "analysis" in dora_docs[0].metadata:
+                framework_analyses.append(f"**DORA Analysis:**\n{dora_docs[0].metadata['analysis']}")
+            print(f"✅ Added {len(dora_docs)} DORA documents to synthesis")
+        else:
+            print(f"❌ No DORA documents to add (dora={state.get('dora', 'NOT_SET')}, has_docs={'dora_docs' in state})")
+        
+        if state.get("cer", False) and "cer_docs" in state:
+            cer_docs = state.get("cer_docs", [])
+            all_docs.extend(cer_docs)
+            if cer_docs and "analysis" in cer_docs[0].metadata:
+                framework_analyses.append(f"**CER Analysis:**\n{cer_docs[0].metadata['analysis']}")
+            print(f"✅ Added {len(cer_docs)} CER documents to synthesis")
+        else:
+            print(f"❌ No CER documents to add (cer={state.get('cer', 'NOT_SET')}, has_docs={'cer_docs' in state})")
+        
+        # Create a combined context that includes both documents and individual analyses
+        combined_context = "\n\n".join([
+            "## Individual Framework Analyses:",
+            *framework_analyses,
+            "\n## Supporting Regulatory Documents:",
+            *[f"Framework: {doc.metadata.get('framework', 'Unknown')}\nContent: {doc.page_content}" for doc in all_docs[:10]]  # Limit to avoid context overflow
+        ])
+        
+        # Create a synthetic document containing the combined analysis context
+        synthesis_doc = Document(
+            page_content=combined_context,
+            metadata={"source": "multi_framework_synthesis", "frameworks": [doc.metadata.get('framework') for doc in all_docs]}
+        )
+        
+        print(f"\n🔄 SYNTHESIS COMPLETE:")
+        print(f"📄 Total documents combined: {len(all_docs)}")
+        print(f"🧠 Framework analyses: {len(framework_analyses)}")
+        print(f"📋 Frameworks with analyses: {[analysis.split(' Analysis:')[0].replace('**', '') for analysis in framework_analyses]}")
+        print(f"✅ Returning synthesis document to answering node")
+        return {"retrieved_docs": [synthesis_doc]}
+    
+    @track(name="rejection")
+    def _create_rejection_node(self, state: AgentState):
+        """Handle off-topic questions with polite rejection"""
+        print(f"\n🚫 REJECTION NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        print(f"❌ Reason: {state.get('rejection_reason', 'Question is off-topic')}")
+        
+        rejection_message = f"""I apologize, but I'm a specialized regulatory compliance assistant focused on EU regulatory frameworks (GDPR, NIS2, DORA, and CER). 
+
+{state.get('rejection_reason', 'Your question appears to be outside the scope of business regulatory compliance.')}
+
+I can help you with:
+- Understanding GDPR compliance for your business
+- NIS2 requirements for essential/important entities
+- DORA obligations for financial services
+- CER requirements for critical infrastructure operators
+- Regulatory compliance guidance for business operations
+
+Please feel free to ask about regulatory compliance requirements for your business activities."""
+
+        print(f"🔄 Generated rejection message")
+        return {"answer": rejection_message}
+    
     @track(name="answer_generation")
     def _create_answering_node(self, state: AgentState):
-        prompt = RAG_PROMPT
+        # Use synthesis prompt for multi-framework responses
+        prompt = SYNTHESIS_PROMPT
         
         model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
         chain = prompt | model_response_with_structure
