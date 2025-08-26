@@ -4,7 +4,10 @@
       "Bash(python test:*)",
       "Bash(python3:*)",
       "Bash(source:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(git init:*)",
+      "Bash(touch:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

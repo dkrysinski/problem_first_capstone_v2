@@ -1,0 +1,38 @@
+# Core LangChain and AI Libraries
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langgraph>=0.2.0
+
+# OpenAI and Azure OpenAI
+openai>=1.40.0
+
+# Vector Store and Embeddings
+faiss-cpu>=1.8.0
+
+# Document Processing
+pypdf>=4.0.0
+
+# Data Processing and Validation
+pydantic>=2.5.0
+
+# Web Application Framework
+streamlit>=1.30.0
+
+# Environment Management
+python-dotenv>=1.0.0
+
+# Opik Tracing (optional)
+opik>=0.2.0
+
+# Standard Python Libraries (usually included but listed for completeness)
+# json - built-in
+# os - built-in  
+# sys - built-in
+# hashlib - built-in
+# time - built-in
+# datetime - built-in
+# typing - built-in
+# dataclasses - built-in (Python 3.7+)
+# pathlib - built-in (Python 3.4+)

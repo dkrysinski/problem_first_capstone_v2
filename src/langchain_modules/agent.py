@@ -11,6 +11,7 @@ import os.path as osp
 import time
 
 from .prompts import RAG_PROMPT, CLASSIFICATION_PROMPT, NIS2_PROMPT, DORA_PROMPT, CER_PROMPT, SYNTHESIS_PROMPT
+from .user_memory import UserMemory
 
 # Opik tracing imports
 try:
@@ -62,21 +63,23 @@ class ClassificationResponse(BaseModel):
     CER: RegulationAssessment = Field(description="CER regulation assessment.")
 
 
-GDPR_FILE_PATH = "/home/dan/capstone_project/data/GDPR_Regulation.pdf"
-NIS2_FILE_PATH = "/home/dan/capstone_project/data/NIS2_Regulation.pdf"
-DORA_FILE_PATH = "/home/dan/capstone_project/data/DORA_Regulation.pdf"
-CER_FILE_PATH = "/home/dan/capstone_project/data/CER_Regulation.pdf"
+GDPR_FILE_PATH = "/home/dan/capstone_project_v2/data/GDPR_Regulation.pdf"
+NIS2_FILE_PATH = "/home/dan/capstone_project_v2/data/NIS2_Regulation.pdf"
+DORA_FILE_PATH = "/home/dan/capstone_project_v2/data/DORA_Regulation.pdf"
+CER_FILE_PATH = "/home/dan/capstone_project_v2/data/CER_Regulation.pdf"
 
-GDPR_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/gdpr_vector_store"
-NIS2_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/nis2_vector_store" 
-DORA_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/dora_vector_store"
-CER_VECTOR_STORE_PATH = "/home/dan/capstone_project/data/cer_vector_store"
+GDPR_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/gdpr_vector_store"
+NIS2_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/nis2_vector_store" 
+DORA_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/dora_vector_store"
+CER_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/cer_vector_store"
 
 class AIAgent:
     def __init__(self):
         self.llm = None
         self.messages = []
         self._setup_opik()
+        self.user_memory = UserMemory()  # Initialize user memory system
+        self.current_user_email = "danno@ragequitlab.com"  # POC default user
         self.initialize()  # Automatically initialize LLM
     
     def _setup_opik(self):
@@ -526,6 +529,24 @@ class AIAgent:
         print(f"\n🔍 CLASSIFICATION DEBUG:")
         print(f"📝 Input question: {state['question']}")
         
+        # Get and display user context for debugging
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        print(f"\n👤 USER CONTEXT DEBUG:")
+        if user_profile:
+            print(f"   📧 Email: {user_profile.get('email', 'Not set')}")
+            print(f"   🏢 Industry: {user_profile.get('industry', 'Not set')}")
+            print(f"   🏛️  Company: {user_profile.get('company', 'Not set')}")
+            print(f"   📊 Regulatory Focus: {user_profile.get('regulatory_focus', [])}")
+            print(f"   📈 Total Interactions: {user_context.get('interaction_count', 0)}")
+            if user_context.get('recent_topics'):
+                print(f"   🔖 Recent Topics: {user_context.get('recent_topics', [])}")
+            if user_context.get('regulatory_patterns'):
+                print(f"   📋 Framework Usage Patterns: {user_context.get('regulatory_patterns', {})}")
+        else:
+            print(f"   ⚠️  No user profile found for {self.current_user_email}")
+        
         prompt = CLASSIFICATION_PROMPT
         
         model_response_with_structure = self.llm.with_structured_output(ClassificationResponse)
@@ -587,6 +608,22 @@ class AIAgent:
         print(f"   🔒 NIS2: {state.get('nis2', 'NOT_SET')}")  
         print(f"   🏦 DORA: {state.get('dora', 'NOT_SET')}")
         print(f"   🏗️  CER: {state.get('cer', 'NOT_SET')}")
+        
+        # Show user context for synthesis awareness
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        print(f"\n👤 USER CONTEXT FOR SYNTHESIS:")
+        if user_profile:
+            print(f"   🏢 User Industry: {user_profile.get('industry', 'Unknown')}")
+            print(f"   📊 Historical Regulatory Focus: {user_profile.get('regulatory_focus', [])}")
+            if user_context.get('regulatory_patterns'):
+                most_used = max(user_context['regulatory_patterns'].items(), key=lambda x: x[1], default=("None", 0))
+                print(f"   🎯 Most Consulted Framework: {most_used[0]} ({most_used[1]}x)")
+            if user_context.get('recent_topics'):
+                print(f"   📋 Recent Topic Categories: {user_context.get('recent_topics', [])}")
+        else:
+            print(f"   ⚠️  No user profile available for synthesis personalization")
         
         all_docs = []
         framework_analyses = []
@@ -674,6 +711,22 @@ Please feel free to ask about regulatory compliance requirements for your busine
     
     @track(name="answer_generation")
     def _create_answering_node(self, state: AgentState):
+        print(f"\n🤖 ANSWER GENERATION DEBUG:")
+        print(f"📝 Question: {state['question']}")
+        
+        # Get user context for personalized responses
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        print(f"\n👤 USER MEMORY CONTEXT:")
+        if user_profile:
+            print(f"   📧 User: {user_profile.get('email', 'Not set')}")
+            print(f"   🏢 Industry: {user_profile.get('industry', 'Not set')}")
+            print(f"   📊 Known Regulatory Interests: {user_profile.get('regulatory_focus', [])}")
+            print(f"   📈 Previous Interactions: {user_context.get('interaction_count', 0)}")
+            if user_context.get('regulatory_patterns'):
+                print(f"   🎯 Most Used Frameworks: {user_context.get('regulatory_patterns', {})}")
+        
         # Use synthesis prompt for multi-framework responses
         prompt = SYNTHESIS_PROMPT
         
@@ -691,7 +744,8 @@ Please feel free to ask about regulatory compliance requirements for your busine
                         "num_context_docs": len(state["retrieved_docs"]),
                         "llm_model": "gpt-4.1-maven-course",
                         "temperature": 0.2,
-                        "prompt_template": "RAG_PROMPT"  # Could expand this to show actual prompt
+                        "prompt_template": "SYNTHESIS_PROMPT",
+                        "user_context": user_context
                     })
             except Exception as e:
                 print(f"Warning: Failed to log generation input to Opik: {e}")
@@ -700,6 +754,53 @@ Please feel free to ask about regulatory compliance requirements for your busine
             "retrieved_docs": state["retrieved_docs"],
             "question": state["question"]
         })
+        
+        # Store interaction in user memory
+        frameworks_analyzed = []
+        if state.get("gdpr", False):
+            frameworks_analyzed.append("GDPR")
+        if state.get("nis2", False):
+            frameworks_analyzed.append("NIS2") 
+        if state.get("dora", False):
+            frameworks_analyzed.append("DORA")
+        if state.get("cer", False):
+            frameworks_analyzed.append("CER")
+        
+        # Infer user details from question and store interaction
+        inferred_details = self.user_memory.infer_user_details(
+            self.current_user_email, 
+            state["question"], 
+            frameworks_analyzed
+        )
+        
+        # Update user profile with inferred details if applicable
+        if inferred_details.get("potential_industry"):
+            self.user_memory.update_user_profile(
+                self.current_user_email,
+                industry=inferred_details["potential_industry"]
+            )
+        
+        self.user_memory.add_interaction(
+            email=self.current_user_email,
+            question=state["question"],
+            frameworks_analyzed=frameworks_analyzed,
+            answer_summary=response.answer,
+            topic_category=inferred_details.get("potential_industry")
+        )
+        
+        print(f"\n💾 MEMORY STORAGE DEBUG:")
+        print(f"   📧 Stored for user: {self.current_user_email}")
+        print(f"   📊 Frameworks recorded: {frameworks_analyzed}")
+        print(f"   🏷️  Topic category: {inferred_details.get('potential_industry', 'None inferred')}")
+        print(f"   🔍 Inferred industry: {inferred_details.get('potential_industry', 'None')}")
+        print(f"   📈 Regulatory complexity: {inferred_details.get('regulatory_complexity', 'medium')}")
+        
+        # Show updated profile
+        updated_profile = self.user_memory.get_user_profile(self.current_user_email)
+        if updated_profile:
+            print(f"   📋 Updated regulatory focus: {updated_profile.regulatory_focus}")
+            print(f"   🏢 Current industry: {updated_profile.industry or 'Not set'}")
+        print(f"   ✅ Memory storage complete")
         
         # Log generation output details
         if self.opik_enabled and OPIK_AVAILABLE:
@@ -712,7 +813,9 @@ Please feel free to ask about regulatory compliance requirements for your busine
                             "sources": response.sources,
                             "answer_length": len(response.answer),
                             "num_sources_identified": len(response.sources) if response.sources else 0
-                        }
+                        },
+                        "memory_stored": True,
+                        "frameworks_analyzed": frameworks_analyzed
                     })
             except Exception as e:
                 print(f"Warning: Failed to log generation output to Opik: {e}")
@@ -798,3 +901,19 @@ Please feel free to ask about regulatory compliance requirements for your busine
     def clear_history(self):
         """Clear conversation history"""
         self.messages = []
+    
+    def get_user_profile(self):
+        """Get current user's profile"""
+        return self.user_memory.get_user_profile(self.current_user_email)
+    
+    def get_user_interactions(self, limit=10):
+        """Get current user's recent interactions"""
+        return self.user_memory.get_user_interactions(self.current_user_email, limit)
+    
+    def get_user_context(self):
+        """Get current user's context for personalized responses"""
+        return self.user_memory.get_user_context(self.current_user_email)
+    
+    def update_user_info(self, **kwargs):
+        """Update current user's profile information"""
+        return self.user_memory.update_user_profile(self.current_user_email, **kwargs)

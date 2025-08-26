@@ -99,6 +99,42 @@ def main_app():
     
     # Sidebar controls
     with st.sidebar:
+        st.subheader("🧠 User Profile")
+        
+        # Display user profile information
+        user_profile = agent.get_user_profile()
+        if user_profile:
+            st.write(f"**Email:** {user_profile.email}")
+            if user_profile.industry:
+                st.write(f"**Industry:** {user_profile.industry}")
+            if user_profile.company:
+                st.write(f"**Company:** {user_profile.company}")
+            if user_profile.regulatory_focus:
+                st.write(f"**Regulatory Focus:** {', '.join(user_profile.regulatory_focus)}")
+            
+            # Show interaction count
+            user_context = agent.get_user_context()
+            st.write(f"**Total Interactions:** {user_context['interaction_count']}")
+            
+            if user_context['recent_topics']:
+                st.write(f"**Recent Topics:** {', '.join(user_context['recent_topics'])}")
+        
+        st.divider()
+        
+        # Recent interactions summary
+        if st.checkbox("Show Recent Interactions"):
+            st.subheader("📝 Recent Questions")
+            interactions = agent.get_user_interactions(limit=5)
+            for i, interaction in enumerate(interactions):
+                with st.expander(f"Query {i+1}: {interaction.question[:50]}..."):
+                    st.write(f"**Question:** {interaction.question}")
+                    st.write(f"**Frameworks:** {', '.join(interaction.frameworks_analyzed)}")
+                    st.write(f"**Time:** {interaction.timestamp[:19].replace('T', ' ')}")
+                    if interaction.topic_category:
+                        st.write(f"**Category:** {interaction.topic_category}")
+        
+        st.divider()
+        
         if st.button("Clear Chat History"):
             st.session_state.messages = []
             agent.clear_history()
