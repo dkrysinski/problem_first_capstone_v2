@@ -293,12 +293,7 @@ class AIAgent:
                 print(f"Warning: Failed to log generation output to Opik: {e}")
         
         print(response)
-        response_str = f"Answer: {response.answer}\n"
-        if response.sources:
-            # Remove the file paths from the sources
-            response.sources = [osp.basename(source) for source in response.sources]
-            # Make sources one per line
-            response_str += "\nSources:\n" + "\n".join(f"- {source}" for source in response.sources)
+        response_str = response.answer
         return {"answer": response_str}
     
     def run(self, query: str) -> str:
