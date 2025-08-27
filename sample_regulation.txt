@@ -1,0 +1,60 @@
+EXECUTIVE ORDER ON ENHANCING CYBERSECURITY FOR FINANCIAL SERVICES
+
+The President of the United States
+
+EXECUTIVE ORDER
+
+By the authority vested in me as President by the Constitution and the laws of the United States of America, it is hereby ordered as follows:
+
+Section 1. Background and Purpose. 
+
+The financial services sector is increasingly dependent on digital infrastructure and faces growing cybersecurity threats from foreign adversaries and criminal organizations. These threats pose risks to national security, economic stability, and the privacy of American citizens' financial data. This Executive Order establishes enhanced cybersecurity requirements for financial institutions to protect critical financial infrastructure.
+
+Section 2. Definitions.
+
+For purposes of this order:
+(a) "Financial institution" means any entity engaged in banking, insurance, investment services, payment processing, or cryptocurrency exchanges operating within the United States.
+(b) "Critical financial data" means personal financial information, transaction records, and any data that could impact market stability.
+(c) "Cyber incident" means any occurrence that compromises or threatens the integrity, confidentiality, or availability of financial systems or data.
+
+Section 3. Enhanced Cybersecurity Requirements.
+
+(a) All financial institutions shall implement advanced threat detection systems capable of real-time monitoring of network traffic and transaction patterns.
+
+(b) Financial institutions shall conduct quarterly penetration testing and vulnerability assessments by independent third-party security firms.
+
+(c) Any cyber incident affecting more than 1,000 customer accounts must be reported to the Department of Treasury and the Cybersecurity and Infrastructure Security Agency (CISA) within 12 hours.
+
+(d) Financial institutions shall maintain incident response plans and conduct annual cybersecurity training for all employees with access to critical financial data.
+
+Section 4. Cross-Border Data Transfer Restrictions.
+
+(a) Financial institutions are prohibited from storing or processing critical financial data in data centers located in countries designated as foreign adversaries.
+
+(b) Any cross-border transfer of financial data to third-party service providers must be pre-approved by the appropriate federal banking regulator and comply with data localization requirements.
+
+(c) Cloud service providers serving financial institutions must maintain data processing capabilities within the United States and undergo annual security clearance reviews.
+
+Section 5. AI and Algorithmic Trading Oversight.
+
+(a) Financial institutions using artificial intelligence or algorithmic trading systems shall implement explainable AI frameworks and maintain audit trails for all automated decisions.
+
+(b) AI systems processing customer data must undergo bias testing and comply with fair lending practices.
+
+(c) Any AI system failure that results in market disruption must be reported to the Securities and Exchange Commission within 6 hours.
+
+Section 6. Implementation Timeline.
+
+The requirements set forth in this order shall be implemented according to the following schedule:
+(a) Sections 3(a) and 3(c) - within 90 days
+(b) Sections 3(b) and 3(d) - within 180 days
+(c) Sections 4 and 5 - within 12 months
+
+Section 7. Enforcement and Penalties.
+
+Failure to comply with this Executive Order may result in civil monetary penalties up to $10 million per violation and potential revocation of federal banking licenses or registrations.
+
+This order shall take effect immediately upon publication.
+
+THE WHITE HOUSE
+January 15, 2024

@@ -1,26 +1,34 @@
 # RegTech AI - Multi-Framework Regulatory Compliance Assistant
 
-A sophisticated AI-powered regulatory compliance assistant that analyzes business questions against multiple EU regulatory frameworks (GDPR, NIS2, DORA, CER) with user memory capabilities.
+A sophisticated AI-powered regulatory compliance assistant that analyzes business questions against multiple regulatory frameworks (GDPR, NIS2, DORA, CER, US Executive Orders) with advanced user memory capabilities and proactive push notification functionality.
 
 ## 🌟 Features
 
 ### Core Capabilities
-- **Multi-Framework Analysis**: Simultaneously analyzes GDPR, NIS2, DORA, and CER regulations
+- **Multi-Framework Analysis**: Simultaneously analyzes GDPR, NIS2, DORA, CER, and US Executive Orders
 - **Intelligent Classification**: Automatically determines which regulatory frameworks apply to your business case
-- **Document Retrieval**: Vector-based similarity search through regulatory documents
+- **Document Retrieval**: Enhanced vector-based similarity search with query expansion
 - **Synthesis Engine**: Combines insights from multiple frameworks for comprehensive compliance guidance
 
-### User Memory System
-- **Profile Management**: Remembers user details (email, industry, company, role)
+### 📢 Push Notification System (NEW!)
+- **Proactive Compliance**: Upload new regulatory documents to automatically identify impacted users
+- **Impact Scoring**: AI-powered relevance assessment based on user profiles and business context
+- **Personalized Emails**: Generate tailored notifications explaining specific impact and requirements
+- **Bulk Processing**: Efficiently process multiple users and generate custom communications
+
+### User Memory System  
+- **Profile Management**: Remembers user details (email, industry, company, role, country)
 - **Interaction History**: Tracks questions and regulatory focus areas
+- **Advanced Topic Tagging**: 60+ granular business topic tags across operations, technology, and regulatory context
 - **Smart Inference**: Automatically detects industry and regulatory complexity from questions
 - **Personalized Responses**: Uses historical context for tailored compliance advice
 
 ### Advanced Features
-- **Real-time Debugging**: Comprehensive logging of user context and decision processes
+- **Query Expansion**: Context-aware search enhancement for better document retrieval
+- **Real-time Debugging**: Comprehensive logging of user context and decision processes  
 - **Opik Tracing**: Optional AI observability and performance monitoring
-- **Streamlit Web Interface**: User-friendly chat interface with profile display
-- **Authentication System**: Secure login with environment-based credentials
+- **Dual Interface**: Chat-based Q&A and document analysis workflows
+- **Executive Orders**: 500+ US Presidential Executive Orders with specialized analysis
 
 ## 🚀 Quick Start
 
