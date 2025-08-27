@@ -10,7 +10,7 @@ import os
 import os.path as osp
 import time
 
-from .prompts import RAG_PROMPT, CLASSIFICATION_PROMPT, NIS2_PROMPT, DORA_PROMPT, CER_PROMPT, SYNTHESIS_PROMPT
+from .prompts import RAG_PROMPT, CLASSIFICATION_PROMPT, NIS2_PROMPT, DORA_PROMPT, CER_PROMPT, EXEC_ORDER_PROMPT, SYNTHESIS_PROMPT
 from .user_memory import UserMemory
 
 # Opik tracing imports
@@ -28,11 +28,13 @@ class AgentState(TypedDict):
     nis2_docs: list[Document]
     dora_docs: list[Document]
     cer_docs: list[Document]
+    exec_order_docs: list[Document]
     answer: str
     gdpr: bool
     nis2: bool
     dora: bool
     cer: bool
+    exec_order: bool
     is_off_topic: bool
     rejection_reason: str
     
@@ -61,17 +63,20 @@ class ClassificationResponse(BaseModel):
     NIS2: RegulationAssessment = Field(description="NIS2 regulation assessment.")
     DORA: RegulationAssessment = Field(description="DORA regulation assessment.")
     CER: RegulationAssessment = Field(description="CER regulation assessment.")
+    EXEC_ORDER: RegulationAssessment = Field(description="US Executive Order regulatory assessment.")
 
 
 GDPR_FILE_PATH = "/home/dan/capstone_project_v2/data/GDPR_Regulation.pdf"
 NIS2_FILE_PATH = "/home/dan/capstone_project_v2/data/NIS2_Regulation.pdf"
 DORA_FILE_PATH = "/home/dan/capstone_project_v2/data/DORA_Regulation.pdf"
 CER_FILE_PATH = "/home/dan/capstone_project_v2/data/CER_Regulation.pdf"
+EXEC_ORDER_DATA_DIR = "/home/dan/capstone_project_v2/data/executive_orders/"
 
 GDPR_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/gdpr_vector_store"
 NIS2_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/nis2_vector_store" 
 DORA_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/dora_vector_store"
 CER_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/cer_vector_store"
+EXEC_ORDER_VECTOR_STORE_PATH = "/home/dan/capstone_project_v2/data/exec_order_vector_store"
 
 class AIAgent:
     def __init__(self):
@@ -135,6 +140,7 @@ class AIAgent:
         self.nis2_vector_store = self._load_or_create_vector_store("NIS2", NIS2_VECTOR_STORE_PATH, NIS2_FILE_PATH)
         self.dora_vector_store = self._load_or_create_vector_store("DORA", DORA_VECTOR_STORE_PATH, DORA_FILE_PATH)
         self.cer_vector_store = self._load_or_create_vector_store("CER", CER_VECTOR_STORE_PATH, CER_FILE_PATH)
+        self.exec_order_vector_store = self._load_or_create_exec_order_vector_store("EXEC_ORDER", EXEC_ORDER_VECTOR_STORE_PATH, EXEC_ORDER_DATA_DIR)
         
         # For backward compatibility, set the main vector store to GDPR
         self.vector_store = self.gdpr_vector_store
@@ -147,6 +153,7 @@ class AIAgent:
         graph.add_node("nis2_analysis", self._create_nis2_analysis_node)
         graph.add_node("dora_analysis", self._create_dora_analysis_node)
         graph.add_node("cer_analysis", self._create_cer_analysis_node)
+        graph.add_node("exec_order_analysis", self._create_exec_order_analysis_node)
         graph.add_node("synthesis", self._create_synthesis_node)
         graph.add_node("answering", self._create_answering_node)
         graph.add_node("rejection", self._create_rejection_node)
@@ -163,6 +170,7 @@ class AIAgent:
                 "nis2_analysis": "nis2_analysis", 
                 "dora_analysis": "dora_analysis",
                 "cer_analysis": "cer_analysis",
+                "exec_order_analysis": "exec_order_analysis",
                 "rejection": "rejection"
             }
         )
@@ -172,6 +180,7 @@ class AIAgent:
         graph.add_edge("nis2_analysis", "synthesis")
         graph.add_edge("dora_analysis", "synthesis")
         graph.add_edge("cer_analysis", "synthesis")
+        graph.add_edge("exec_order_analysis", "synthesis")
         
         # Synthesis feeds into answering, then end
         graph.add_edge("synthesis", "answering")
@@ -335,6 +344,113 @@ class AIAgent:
             
         return docs
     
+    def _load_or_create_exec_order_vector_store(self, framework_name: str, store_path: str, data_dir: str):
+        """Load existing Executive Order vector store or create new one from directory of PDFs"""
+        if os.path.exists(store_path):
+            print(f"📦 Loading existing {framework_name} vector store from disk...")
+            try:
+                vector_store = FAISS.load_local(store_path, self.embeddings, allow_dangerous_deserialization=True)
+                print(f"✅ {framework_name} vector store loaded successfully!")
+                return vector_store
+            except Exception as e:
+                print(f"❌ Error loading {framework_name} vector store: {e}")
+                print(f"🔄 Creating new {framework_name} vector store...")
+                return self._create_exec_order_vector_store(framework_name, store_path, data_dir)
+        else:
+            print(f"🔄 No existing {framework_name} vector store found. Creating new one...")
+            return self._create_exec_order_vector_store(framework_name, store_path, data_dir)
+    
+    def _create_exec_order_vector_store(self, framework_name: str, store_path: str, data_dir: str):
+        """Create a new vector store for Executive Orders from directory of PDFs"""
+        docs = self._load_and_process_exec_order_documents(data_dir, framework_name)
+        
+        if not docs:
+            print(f"⚠️ No Executive Order documents found in {data_dir}, creating placeholder store")
+            # Create minimal vector store with placeholder
+            placeholder_doc = Document(
+                page_content=f"{framework_name} placeholder - Executive Order documents will be loaded when PDFs are added to {data_dir}",
+                metadata={"source": data_dir, "framework": framework_name, "document_type": "placeholder"}
+            )
+            docs = [placeholder_doc]
+        
+        # Print debug info
+        print(f"First {framework_name} document content type: {type(docs[0].page_content)}")
+        print(f"First {framework_name} document content (first 100 chars): {docs[0].page_content[:100]}")
+        
+        # Create vector store from documents
+        print(f"🚀 Creating {framework_name} vector store from {len(docs)} documents...")
+        try:
+            vector_store = FAISS.from_documents(docs, self.embeddings)
+            print(f"💾 Saving {framework_name} vector store to disk...")
+            vector_store.save_local(store_path)
+            print(f"✅ {framework_name} vector store created and saved successfully!")
+            return vector_store
+        except Exception as e:
+            print(f"❌ Error creating {framework_name} vector store: {e}")
+            return self._create_vector_store_batch_processing(docs, store_path, framework_name)
+    
+    def _load_and_process_exec_order_documents(self, data_dir: str, framework_name: str = "EXEC_ORDER") -> List[Document]:
+        """Load and process multiple Executive Order PDF documents from a directory"""
+        from langchain_community.document_loaders import PyPDFLoader
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        
+        docs = []
+        
+        if not os.path.exists(data_dir):
+            print(f"⚠️ Directory not found: {data_dir}")
+            return docs
+        
+        # Find all PDF files in the directory
+        pdf_files = [f for f in os.listdir(data_dir) if f.lower().endswith('.pdf')]
+        
+        if not pdf_files:
+            print(f"⚠️ No PDF files found in {data_dir}")
+            return docs
+        
+        print(f"📄 Found {len(pdf_files)} Executive Order PDFs in {data_dir}")
+        
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        
+        for pdf_file in sorted(pdf_files):  # Process in alphabetical order
+            file_path = os.path.join(data_dir, pdf_file)
+            print(f"Loading Executive Order document: {pdf_file}")
+            
+            try:
+                loader = PyPDFLoader(file_path)
+                page_docs = loader.load()
+                
+                # Combine all pages into one document
+                combined_doc = "\n".join([doc.page_content for doc in page_docs])
+                
+                # Split into chunks
+                chunks = text_splitter.split_text(combined_doc)
+                
+                # Filter out empty chunks
+                valid_chunks = [chunk for chunk in chunks if chunk and chunk.strip()]
+                
+                # Create documents with metadata
+                for chunk in valid_chunks:
+                    content = str(chunk).strip()
+                    if content and isinstance(content, str):
+                        docs.append(Document(
+                            page_content=content, 
+                            metadata={
+                                "source": file_path, 
+                                "framework": framework_name,
+                                "document_name": pdf_file,
+                                "document_type": "executive_order"
+                            }
+                        ))
+                
+                print(f"✅ Processed {pdf_file}: {len(valid_chunks)} chunks")
+                
+            except Exception as e:
+                print(f"❌ Error loading {pdf_file}: {e}")
+                continue
+        
+        print(f"✅ Total Executive Order chunks loaded: {len(docs)}")
+        return docs
+    
     @track(name="document_retrieval")
     def _create_retrieval_node(self, state: AgentState):
         retriever = self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
@@ -474,6 +590,32 @@ class AIAgent:
         
         return {"cer_docs": docs}
     
+    @track(name="exec_order_analysis")
+    def _create_exec_order_analysis_node(self, state: AgentState):
+        print(f"\n🇺🇸 EXECUTIVE ORDER ANALYSIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        
+        # Retrieve Executive Order documents
+        retriever = self.exec_order_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        docs = retriever.invoke(state["question"])
+        print(f"📄 Executive Order analysis: {len(docs)} documents retrieved")
+        
+        # Generate Executive Order-specific response
+        model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
+        chain = EXEC_ORDER_PROMPT | model_response_with_structure
+        
+        response = chain.invoke({
+            "retrieved_docs": docs,
+            "question": state["question"]
+        })
+        
+        # Tag documents with framework and analysis
+        for doc in docs:
+            doc.metadata["framework"] = "EXEC_ORDER"
+            doc.metadata["analysis"] = response.answer
+        
+        return {"exec_order_docs": docs}
+    
     def _route_to_applicable_frameworks(self, state: AgentState):
         """Determine which framework analysis nodes should be executed based on classification"""
         print(f"\n🚏 ROUTING DEBUG:")
@@ -489,6 +631,7 @@ class AIAgent:
         print(f"   🔒 NIS2: {state.get('nis2', 'NOT_SET')}")
         print(f"   🏦 DORA: {state.get('dora', 'NOT_SET')}")
         print(f"   🏗️  CER: {state.get('cer', 'NOT_SET')}")
+        print(f"   🇺🇸 EXEC_ORDER: {state.get('exec_order', 'NOT_SET')}")
         
         applicable_frameworks = []
         
@@ -515,6 +658,12 @@ class AIAgent:
             print(f"   ✅ Adding CER analysis")
         else:
             print(f"   ❌ Skipping CER analysis (value: {state.get('cer', 'NOT_SET')})")
+            
+        if state.get("exec_order", False):
+            applicable_frameworks.append("exec_order_analysis")
+            print(f"   ✅ Adding Executive Order analysis")
+        else:
+            print(f"   ❌ Skipping Executive Order analysis (value: {state.get('exec_order', 'NOT_SET')})")
         
         # If no frameworks are applicable, default to GDPR
         if not applicable_frameworks:
@@ -538,6 +687,7 @@ class AIAgent:
             print(f"   📧 Email: {user_profile.get('email', 'Not set')}")
             print(f"   🏢 Industry: {user_profile.get('industry', 'Not set')}")
             print(f"   🏛️  Company: {user_profile.get('company', 'Not set')}")
+            print(f"   🌎 Country: {user_profile.get('country', 'Not set')}")
             print(f"   📊 Regulatory Focus: {user_profile.get('regulatory_focus', [])}")
             print(f"   📈 Total Interactions: {user_context.get('interaction_count', 0)}")
             if user_context.get('recent_topics'):
@@ -584,12 +734,15 @@ class AIAgent:
         print(f"   └─ Explanation: {response.DORA.explanation}")
         print(f"🏗️  CER: applies={response.CER.applies}, confidence={response.CER.confidence:.2f}")
         print(f"   └─ Explanation: {response.CER.explanation}")
+        print(f"🇺🇸 EXEC_ORDER: applies={response.EXEC_ORDER.applies}, confidence={response.EXEC_ORDER.confidence:.2f}")
+        print(f"   └─ Explanation: {response.EXEC_ORDER.explanation}")
         
         result = {
             "gdpr": response.GDPR.applies,
             "nis2": response.NIS2.applies,
             "dora": response.DORA.applies,
             "cer": response.CER.applies,
+            "exec_order": response.EXEC_ORDER.applies,
             "is_off_topic": False,
             "rejection_reason": ""
         }
@@ -665,6 +818,15 @@ class AIAgent:
         else:
             print(f"❌ No CER documents to add (cer={state.get('cer', 'NOT_SET')}, has_docs={'cer_docs' in state})")
         
+        if state.get("exec_order", False) and "exec_order_docs" in state:
+            exec_order_docs = state.get("exec_order_docs", [])
+            all_docs.extend(exec_order_docs)
+            if exec_order_docs and "analysis" in exec_order_docs[0].metadata:
+                framework_analyses.append(f"**Executive Order Analysis:**\n{exec_order_docs[0].metadata['analysis']}")
+            print(f"✅ Added {len(exec_order_docs)} Executive Order documents to synthesis")
+        else:
+            print(f"❌ No Executive Order documents to add (exec_order={state.get('exec_order', 'NOT_SET')}, has_docs={'exec_order_docs' in state})")
+        
         # Create a combined context that includes both documents and individual analyses
         combined_context = "\n\n".join([
             "## Individual Framework Analyses:",
@@ -722,6 +884,7 @@ Please feel free to ask about regulatory compliance requirements for your busine
         if user_profile:
             print(f"   📧 User: {user_profile.get('email', 'Not set')}")
             print(f"   🏢 Industry: {user_profile.get('industry', 'Not set')}")
+            print(f"   🌎 Country: {user_profile.get('country', 'Not set')}")
             print(f"   📊 Known Regulatory Interests: {user_profile.get('regulatory_focus', [])}")
             print(f"   📈 Previous Interactions: {user_context.get('interaction_count', 0)}")
             if user_context.get('regulatory_patterns'):
@@ -765,6 +928,8 @@ Please feel free to ask about regulatory compliance requirements for your busine
             frameworks_analyzed.append("DORA")
         if state.get("cer", False):
             frameworks_analyzed.append("CER")
+        if state.get("exec_order", False):
+            frameworks_analyzed.append("EXEC_ORDER")
         
         # Infer user details from question and store interaction
         inferred_details = self.user_memory.infer_user_details(
@@ -774,10 +939,16 @@ Please feel free to ask about regulatory compliance requirements for your busine
         )
         
         # Update user profile with inferred details if applicable
+        profile_updates = {}
         if inferred_details.get("potential_industry"):
+            profile_updates["industry"] = inferred_details["potential_industry"]
+        if inferred_details.get("potential_country"):
+            profile_updates["country"] = inferred_details["potential_country"]
+        
+        if profile_updates:
             self.user_memory.update_user_profile(
                 self.current_user_email,
-                industry=inferred_details["potential_industry"]
+                **profile_updates
             )
         
         self.user_memory.add_interaction(
@@ -793,6 +964,7 @@ Please feel free to ask about regulatory compliance requirements for your busine
         print(f"   📊 Frameworks recorded: {frameworks_analyzed}")
         print(f"   🏷️  Topic category: {inferred_details.get('potential_industry', 'None inferred')}")
         print(f"   🔍 Inferred industry: {inferred_details.get('potential_industry', 'None')}")
+        print(f"   🌍 Inferred country: {inferred_details.get('potential_country', 'None')}")
         print(f"   📈 Regulatory complexity: {inferred_details.get('regulatory_complexity', 'medium')}")
         
         # Show updated profile
@@ -800,6 +972,7 @@ Please feel free to ask about regulatory compliance requirements for your busine
         if updated_profile:
             print(f"   📋 Updated regulatory focus: {updated_profile.regulatory_focus}")
             print(f"   🏢 Current industry: {updated_profile.industry or 'Not set'}")
+            print(f"   🌎 Current country: {updated_profile.country or 'Not set'}")
         print(f"   ✅ Memory storage complete")
         
         # Log generation output details
@@ -917,3 +1090,48 @@ Please feel free to ask about regulatory compliance requirements for your busine
     def update_user_info(self, **kwargs):
         """Update current user's profile information"""
         return self.user_memory.update_user_profile(self.current_user_email, **kwargs)
+    
+    def switch_user(self, email: str):
+        """Switch to a different user profile"""
+        profile = self.user_memory.get_user_profile(email)
+        if profile:
+            self.current_user_email = email
+            print(f"🔄 Switched to user: {email}")
+            return profile
+        else:
+            print(f"❌ User profile not found: {email}")
+            return None
+    
+    def list_all_users(self):
+        """List all user profiles in the system"""
+        profiles = self.user_memory._load_profiles()
+        return list(profiles.keys())
+    
+    def get_user_summary(self, email: str = None):
+        """Get a summary of user profile and interactions"""
+        target_email = email or self.current_user_email
+        profile = self.user_memory.get_user_profile(target_email)
+        context = self.user_memory.get_user_context(target_email)
+        interactions = self.user_memory.get_user_interactions(target_email, limit=3)
+        
+        if not profile:
+            return f"No profile found for {target_email}"
+        
+        summary = f"""
+👤 **User Profile: {profile.email}**
+🏢 Industry: {profile.industry or 'Not set'}
+🏛️  Company: {profile.company or 'Not set'}  
+👔 Role: {profile.role or 'Not set'}
+🌎 Country: {profile.country or 'Not set'}
+📊 Regulatory Focus: {', '.join(profile.regulatory_focus) if profile.regulatory_focus else 'None'}
+📈 Total Interactions: {context['interaction_count']}
+🔖 Recent Topics: {', '.join(context['recent_topics'][:3]) if context['recent_topics'] else 'None'}
+📋 Framework Usage: {context['regulatory_patterns']}
+        """
+        
+        if interactions:
+            summary += "\n🕒 **Recent Questions:**\n"
+            for i, interaction in enumerate(interactions[:2], 1):
+                summary += f"{i}. {interaction.question[:80]}...\n"
+        
+        return summary.strip()

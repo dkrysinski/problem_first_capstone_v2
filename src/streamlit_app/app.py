@@ -99,6 +99,31 @@ def main_app():
     
     # Sidebar controls
     with st.sidebar:
+        st.subheader("👥 User Selection")
+        
+        # User selector
+        all_users = agent.list_all_users()
+        current_user = agent.current_user_email
+        
+        # Find current user index for default selection
+        try:
+            current_index = all_users.index(current_user)
+        except ValueError:
+            current_index = 0
+        
+        selected_user = st.selectbox(
+            "Select User Profile:",
+            all_users,
+            index=current_index,
+            format_func=lambda x: x.split('@')[0].title() + f" ({x.split('@')[1]})"
+        )
+        
+        # Switch user if selection changed
+        if selected_user != current_user:
+            agent.switch_user(selected_user)
+            st.rerun()
+        
+        st.divider()
         st.subheader("🧠 User Profile")
         
         # Display user profile information
@@ -109,6 +134,8 @@ def main_app():
                 st.write(f"**Industry:** {user_profile.industry}")
             if user_profile.company:
                 st.write(f"**Company:** {user_profile.company}")
+            if user_profile.country:
+                st.write(f"**Country:** {user_profile.country}")
             if user_profile.regulatory_focus:
                 st.write(f"**Regulatory Focus:** {', '.join(user_profile.regulatory_focus)}")
             

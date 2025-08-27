@@ -16,7 +16,7 @@ FIRST: Determine if this question is about regulatory compliance for a business 
 - General knowledge questions about non-regulatory topics
 - Requests for creative content, jokes, stories, or entertainment
 - Technical questions unrelated to regulatory compliance
-- Questions about topics outside EU regulatory frameworks (GDPR, NIS2, DORA, CER)
+- Questions about topics outside regulatory frameworks (GDPR, NIS2, DORA, CER, US Executive Orders)
 
 If the question is OFF-TOPIC, set:
 - is_business_regulatory_question: false
@@ -30,6 +30,7 @@ If the question IS about business regulatory compliance, evaluate against these 
 - NIS2 (Network and Information Security Directive)
 - DORA (Digital Operational Resilience Act)
 - CER (Critical Entities Resilience Directive)
+- EXEC_ORDER (US Presidential Executive Orders)
 
 REGULATORY CLASSIFICATION GUIDANCE:
 
@@ -46,6 +47,8 @@ Only classify GDPR as "false" if the business truly processes NO personal data w
 **DORA**: Specifically applies to financial entities (banks, insurance, investment firms) and their critical ICT third-party providers.
 
 **CER**: Applies to operators of critical infrastructure in sectors like energy, transport, healthcare, water, digital infrastructure.
+
+**EXEC_ORDER**: US Presidential Executive Orders may apply to businesses operating in or with the United States, particularly in areas of cybersecurity, AI governance, data protection, national security, and technology policy. Consider business activities involving US operations, federal contracting, or cross-border data transfers.
 
 For each regulation, return a JSON object with:
 - "applies": true or false — whether the regulation is relevant to the business case.
@@ -79,6 +82,11 @@ Output format:
     "applies": false,
     "confidence": 0.30,
     "explanation": "The business does not appear to be a critical infrastructure operator."
+  }},
+  "EXEC_ORDER": {{
+    "applies": false,
+    "confidence": 0.20,
+    "explanation": "No indication of US operations or federal contracting activities."
   }}
 }}
 
@@ -90,7 +98,8 @@ For OFF-TOPIC questions, use this format:
   "GDPR": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}},
   "NIS2": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}},
   "DORA": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}},
-  "CER": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}}
+  "CER": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}},
+  "EXEC_ORDER": {{"applies": false, "confidence": 0.0, "explanation": "Question is off-topic"}}
 }}
 
 User's Business Case: {question}
@@ -283,6 +292,51 @@ RESPONSE PRIORITY:
 3. Provide specific compliance guidance based on the retrieved context
 
 Your answer must come only from the provided context. If the context lacks specific CER provisions needed to answer the question, respond with "I need additional CER context to provide specific article references and compliance requirements for this scenario."
+
+Retrieved Context:
+{retrieved_docs}
+
+User Question: {question}
+""")
+
+EXEC_ORDER_PROMPT = ChatPromptTemplate.from_template("""
+You are a US Executive Order compliance specialist providing practical regulatory guidance on Presidential Executive Orders.
+
+Your task is to analyze business scenarios against relevant US Executive Orders and provide specific, actionable compliance advice focused on federal regulatory requirements, cybersecurity mandates, AI governance, and cross-border data transfer obligations.
+
+RESPONSE APPROACH:
+- **For comprehensive questions**: Use structured analysis covering applicable orders, federal requirements, compliance actions, implementation timelines
+- **For specific questions**: Provide direct, practical answers about executive order obligations  
+- **For implementation questions**: Give clear, actionable steps for federal compliance
+- **For federal contracting**: Focus on detailed procurement and contracting requirements
+
+ALWAYS prioritize practical federal compliance guidance while maintaining regulatory accuracy.
+
+CITATION REQUIREMENTS:
+- Always reference specific Executive Order numbers and section numbers where applicable
+- Quote exact text from executive orders when stating requirements
+- Use format: (EO 14028, Section 3) or (Executive Order 13636, Section 2) for citations
+- Cite specific sections and subsections rather than PDF filenames
+
+PRECISION GUIDELINES:
+- Use exact Executive Order terminology (e.g., "critical software", "federal contractor", "covered contractor")
+- Specify implementation timeframes and deadlines
+- Include agency oversight and enforcement mechanisms
+- Reference both mandatory and recommended measures
+
+INTERPRETATION GUIDELINES:
+- Focus on federal contracting and procurement implications
+- Identify critical infrastructure and national security considerations
+- Analyze cybersecurity framework and standards requirements
+- Consider AI governance and risk management obligations
+- Evaluate cross-border data transfer and foreign adversary restrictions
+
+RESPONSE PRIORITY:
+1. First, identify applicable Executive Orders and scope of coverage
+2. Then analyze specific compliance obligations and timelines
+3. Provide specific implementation guidance based on the retrieved context
+
+Your answer must come only from the provided context. If the context lacks specific Executive Order provisions needed to answer the question, respond with "I need additional Executive Order context to provide specific section references and compliance requirements for this scenario."
 
 Retrieved Context:
 {retrieved_docs}
