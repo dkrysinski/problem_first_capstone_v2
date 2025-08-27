@@ -451,6 +451,110 @@ class AIAgent:
         print(f"✅ Total Executive Order chunks loaded: {len(docs)}")
         return docs
     
+    def _expand_query_for_exec_orders(self, original_query: str, user_profile: dict = None) -> str:
+        """Expand user query with relevant context for better Executive Order retrieval"""
+        
+        # Base expansion terms based on common executive order topics
+        expansion_terms = []
+        
+        # Analyze query for key topics and add relevant terms
+        query_lower = original_query.lower()
+        
+        # China-related expansions
+        if 'china' in query_lower or 'chinese' in query_lower:
+            expansion_terms.extend([
+                "People's Republic of China", "PRC", "Chinese entities", 
+                "trade restrictions", "technology transfer", "export controls",
+                "foreign investment", "supply chain", "national security",
+                "tariffs", "sanctions", "critical technology"
+            ])
+        
+        # Business expansion terms
+        if any(term in query_lower for term in ['expand', 'expansion', 'international', 'foreign']):
+            expansion_terms.extend([
+                "international operations", "foreign operations", 
+                "cross-border", "overseas business", "foreign investment",
+                "international trade", "global operations"
+            ])
+        
+        # Technology and cybersecurity terms
+        if user_profile and user_profile.get('industry') in ['Technology/Software', 'government']:
+            expansion_terms.extend([
+                "cybersecurity", "technology export", "critical infrastructure",
+                "information security", "data protection", "AI governance"
+            ])
+        
+        # Government contractor specific terms
+        if user_profile and ('government' in user_profile.get('industry', '').lower() or 
+                            'defense' in user_profile.get('company', '').lower()):
+            expansion_terms.extend([
+                "federal contractor", "government contracting", "federal procurement",
+                "defense contractor", "national security contractor"
+            ])
+        
+        # Financial services terms
+        if user_profile and 'financial' in user_profile.get('industry', '').lower():
+            expansion_terms.extend([
+                "financial services", "banking", "payment systems",
+                "digital assets", "cryptocurrency", "financial institutions"
+            ])
+        
+        # Create expanded query
+        if expansion_terms:
+            # Remove duplicates and limit to most relevant terms
+            unique_terms = list(dict.fromkeys(expansion_terms))[:8]
+            expanded_query = f"{original_query} {' '.join(unique_terms)}"
+        else:
+            # Fallback expansion for executive orders
+            expanded_query = f"{original_query} executive order presidential directive federal regulation compliance"
+        
+        return expanded_query
+    
+    def _expand_query_for_gdpr(self, original_query: str, user_profile: dict = None) -> str:
+        """Expand user query with relevant context for better GDPR retrieval"""
+        
+        expansion_terms = []
+        query_lower = original_query.lower()
+        
+        # Cross-border/international terms
+        if any(term in query_lower for term in ['china', 'expand', 'international', 'cross-border', 'transfer']):
+            expansion_terms.extend([
+                "cross-border data transfer", "third country transfer", "adequacy decision",
+                "standard contractual clauses", "data transfer mechanisms",
+                "international data processing", "data export", "data localization"
+            ])
+        
+        # Industry-specific terms
+        if user_profile:
+            industry = user_profile.get('industry', '').lower()
+            if 'government' in industry:
+                expansion_terms.extend([
+                    "public sector", "government processing", "public authority",
+                    "official authority", "public task", "lawful basis"
+                ])
+            elif 'financial' in industry:
+                expansion_terms.extend([
+                    "financial data", "payment processing", "customer due diligence",
+                    "anti-money laundering", "financial services"
+                ])
+            elif 'healthcare' in industry:
+                expansion_terms.extend([
+                    "health data", "medical records", "patient data", "health information"
+                ])
+        
+        # General GDPR terms if no specific context
+        if not expansion_terms:
+            expansion_terms = [
+                "personal data processing", "data protection", "privacy rights",
+                "consent", "legitimate interest", "data controller"
+            ]
+        
+        # Create expanded query
+        unique_terms = list(dict.fromkeys(expansion_terms))[:6]
+        expanded_query = f"{original_query} {' '.join(unique_terms)}"
+        
+        return expanded_query
+    
     @track(name="document_retrieval")
     def _create_retrieval_node(self, state: AgentState):
         retriever = self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
@@ -494,9 +598,17 @@ class AIAgent:
         print(f"\n🏛️ GDPR ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
         
-        # Retrieve GDPR documents
+        # Get user context for query expansion
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        # Generate expanded query for better retrieval
+        expanded_query = self._expand_query_for_gdpr(state["question"], user_profile)
+        print(f"🔍 Expanded query: {expanded_query}")
+        
+        # Retrieve GDPR documents with expanded query
         retriever = self.gdpr_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        docs = retriever.invoke(state["question"])
+        docs = retriever.invoke(expanded_query)
         print(f"📄 GDPR analysis: {len(docs)} documents retrieved")
         
         # Generate GDPR-specific response
@@ -595,9 +707,17 @@ class AIAgent:
         print(f"\n🇺🇸 EXECUTIVE ORDER ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
         
-        # Retrieve Executive Order documents
-        retriever = self.exec_order_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        docs = retriever.invoke(state["question"])
+        # Get user context for query expansion
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        # Generate expanded query for better retrieval
+        expanded_query = self._expand_query_for_exec_orders(state["question"], user_profile)
+        print(f"🔍 Expanded query: {expanded_query}")
+        
+        # Retrieve Executive Order documents with expanded query
+        retriever = self.exec_order_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+        docs = retriever.invoke(expanded_query)
         print(f"📄 Executive Order analysis: {len(docs)} documents retrieved")
         
         # Generate Executive Order-specific response
@@ -692,6 +812,9 @@ class AIAgent:
             print(f"   📈 Total Interactions: {user_context.get('interaction_count', 0)}")
             if user_context.get('recent_topics'):
                 print(f"   🔖 Recent Topics: {user_context.get('recent_topics', [])}")
+            if user_context.get('topic_tags'):
+                top_tags = list(user_context.get('topic_tags', {}).keys())[:5]
+                print(f"   🏷️  Top Topic Tags: {top_tags}")
             if user_context.get('regulatory_patterns'):
                 print(f"   📋 Framework Usage Patterns: {user_context.get('regulatory_patterns', {})}")
         else:
@@ -702,8 +825,32 @@ class AIAgent:
         model_response_with_structure = self.llm.with_structured_output(ClassificationResponse)
         chain = prompt | model_response_with_structure
         
-        print(f"🤖 Sending to LLM for classification...")
-        response = chain.invoke({"question": state["question"]})
+        # Prepare user context for classification
+        user_context_str = "No user context available"
+        if user_profile:
+            context_parts = []
+            if user_profile.get('industry'):
+                context_parts.append(f"Industry: {user_profile['industry']}")
+            if user_profile.get('company'):
+                context_parts.append(f"Company: {user_profile['company']}")
+            if user_profile.get('country'):
+                context_parts.append(f"Country: {user_profile['country']}")
+            if user_profile.get('regulatory_focus'):
+                context_parts.append(f"Known regulatory interests: {', '.join(user_profile['regulatory_focus'])}")
+            if user_context.get('regulatory_patterns'):
+                most_used = max(user_context['regulatory_patterns'].items(), key=lambda x: x[1], default=None)
+                if most_used:
+                    context_parts.append(f"Most consulted framework: {most_used[0]}")
+            
+            if context_parts:
+                user_context_str = "; ".join(context_parts)
+        
+        print(f"🤖 Sending to LLM for classification with user context...")
+        print(f"👤 User context: {user_context_str}")
+        response = chain.invoke({
+            "question": state["question"],
+            "user_context": user_context_str
+        })
         
         # Check if question is off-topic first
         print(f"\n🎯 TOPIC CLASSIFICATION:")
@@ -1004,7 +1151,7 @@ Please feel free to ask about regulatory compliance requirements for your busine
         else:
             return self._run_without_tracing(query)
     
-    @track(name="agent_query", project_name="RegTechAI")
+    @track(name="agent_query", project_name="RegTechAI-v2")
     def _run_with_tracing(self, query: str) -> str:
         """Run with Opik tracing enabled with comprehensive logging"""
         import time

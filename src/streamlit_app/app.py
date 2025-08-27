@@ -2,7 +2,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import sys
 import os
-import hashlib
 
 load_dotenv()
 
@@ -11,20 +10,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from src.langchain_modules.agent import AIAgent
 
 st.set_page_config(page_title="Problem-First AI Capstone - RegTech AI")
-
-# Get authentication credentials from environment variables
-def get_valid_credentials():
-    """Get authentication credentials from environment variables"""
-    username = os.getenv("STREAMLIT_USERNAME")
-    password = os.getenv("STREAMLIT_PASSWORD")
-    
-    if not username or not password:
-        st.error("Authentication credentials not configured. Please set STREAMLIT_USERNAME and STREAMLIT_PASSWORD in .env file.")
-        st.stop()
-    
-    return {
-        username: hash_password(password)
-    }
 
 @st.cache_resource
 def initialize_agent():
@@ -39,53 +24,9 @@ def initialize_agent():
         st.stop()
         return None
 
-def hash_password(password):
-    """Hash password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def check_password():
-    """Check if user is authenticated"""
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    
-    if st.session_state.authenticated:
-        return True
-    
-    # Get valid credentials from environment
-    valid_credentials = get_valid_credentials()
-    
-    st.title("🔐 Authentication Required")
-    st.markdown("Please login to access the RegTech AI application.")
-    
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("Login")
-        
-        if submit:
-            if username in valid_credentials and hash_password(password) == valid_credentials[username]:
-                st.session_state.authenticated = True
-                st.session_state.username = username
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("Invalid username or password")
-    
-    st.markdown("---")
-    return False
-
 def main_app():
     """Main chatbot application"""
-    # Show logout button and user info in the header
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("🤖 RegTech AI Agent - v1")
-    with col2:
-        st.write(f"Logged in as: **{st.session_state.username}**")
-        if st.button("Logout"):
-            st.session_state.authenticated = False
-            st.session_state.pop('username', None)
-            st.rerun()
+    st.title("🤖 RegTech AI Agent - v1")
     
     # Get the cached agent
     agent = initialize_agent()
@@ -145,6 +86,11 @@ def main_app():
             
             if user_context['recent_topics']:
                 st.write(f"**Recent Topics:** {', '.join(user_context['recent_topics'])}")
+            
+            if user_context.get('topic_tags'):
+                top_tags = list(user_context['topic_tags'].keys())[:8]
+                if top_tags:
+                    st.write(f"**Topic Tags:** {', '.join(top_tags)}")
         
         st.divider()
         
@@ -188,6 +134,5 @@ def main_app():
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": response})
 
-# Check authentication before running the main app
-if check_password():
-    main_app()
+# Run the main app directly (no authentication required)
+main_app()

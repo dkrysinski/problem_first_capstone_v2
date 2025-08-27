@@ -30,10 +30,13 @@ class Interaction:
     frameworks_analyzed: List[str]
     answer_summary: str
     topic_category: Optional[str] = None
+    topic_tags: List[str] = None
     
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now().isoformat()
+        if self.topic_tags is None:
+            self.topic_tags = []
 
 class UserMemory:
     def __init__(self, data_dir: str = "data/user_memory"):
@@ -426,12 +429,16 @@ class UserMemory:
         if email not in interactions:
             interactions[email] = []
         
+        # Extract topic tags
+        topic_tags = self.extract_topic_tags(question, frameworks_analyzed, answer_summary)
+        
         interaction = Interaction(
             timestamp=datetime.now().isoformat(),
             question=question,
             frameworks_analyzed=frameworks_analyzed,
             answer_summary=answer_summary[:500] + "..." if len(answer_summary) > 500 else answer_summary,
-            topic_category=topic_category
+            topic_category=topic_category,
+            topic_tags=topic_tags
         )
         
         interactions[email].append(asdict(interaction))
@@ -473,6 +480,7 @@ class UserMemory:
         context = {
             "profile": asdict(profile) if profile else None,
             "recent_topics": [],
+            "topic_tags": {},
             "regulatory_patterns": {},
             "interaction_count": 0
         }
@@ -492,6 +500,9 @@ class UserMemory:
                 for framework in interaction.frameworks_analyzed:
                     context["regulatory_patterns"][framework] = \
                         context["regulatory_patterns"].get(framework, 0) + 1
+            
+            # Get topic tag trends
+            context["topic_tags"] = self.get_topic_tag_trends(email, limit=20)
         
         return context
     
@@ -572,3 +583,105 @@ class UserMemory:
             inferred["regulatory_complexity"] = "low"
         
         return inferred
+    
+    def extract_topic_tags(self, question: str, frameworks_analyzed: List[str], answer_summary: str = "") -> List[str]:
+        """Extract detailed topic tags from user question and analysis"""
+        tags = set()
+        text_to_analyze = f"{question} {answer_summary}".lower()
+        
+        # Business operation tags
+        operation_keywords = {
+            "data-processing": ["data processing", "personal data", "data collection", "data storage", "data analytics"],
+            "cross-border": ["international", "cross-border", "third country", "global", "overseas", "export", "import"],
+            "cloud-services": ["cloud", "saas", "paas", "iaas", "aws", "azure", "google cloud", "hosting"],
+            "AI-ML": ["artificial intelligence", "machine learning", "ai", "ml", "algorithm", "automated", "neural"],
+            "cybersecurity": ["cybersecurity", "security", "cyber", "breach", "incident", "vulnerability", "threat"],
+            "compliance": ["compliance", "audit", "assessment", "requirement", "obligation", "mandate"],
+            "contracts": ["contract", "agreement", "vendor", "supplier", "third party", "outsourcing"],
+            "business-expansion": ["expand", "expansion", "new market", "launch", "scaling", "growing"],
+            "mergers-acquisitions": ["merger", "acquisition", "m&a", "consolidation", "integration"],
+            "employee-data": ["employee", "hr", "workforce", "personnel", "payroll", "recruitment"],
+            "customer-data": ["customer", "client", "user", "consumer", "subscriber", "member"],
+            "marketing": ["marketing", "advertising", "campaign", "email marketing", "newsletter", "analytics"],
+            "payment-processing": ["payment", "transaction", "billing", "financial transaction", "payment card"],
+            "authentication": ["authentication", "login", "password", "biometric", "two-factor", "access control"],
+            "incident-response": ["incident", "breach", "response", "notification", "reporting", "disclosure"]
+        }
+        
+        # Technology tags
+        tech_keywords = {
+            "blockchain": ["blockchain", "cryptocurrency", "bitcoin", "ethereum", "distributed ledger"],
+            "iot": ["iot", "internet of things", "sensors", "connected devices", "smart devices"],
+            "mobile-apps": ["mobile app", "smartphone", "ios", "android", "mobile application"],
+            "websites": ["website", "web application", "online platform", "web portal", "e-commerce"],
+            "databases": ["database", "sql", "mongodb", "data warehouse", "data lake"],
+            "apis": ["api", "rest", "graphql", "integration", "interface", "webhook"],
+            "analytics": ["analytics", "reporting", "dashboard", "metrics", "kpi", "business intelligence"]
+        }
+        
+        # Regulatory context tags
+        regulatory_keywords = {
+            "data-transfers": ["data transfer", "adequacy", "standard contractual clauses", "binding corporate rules"],
+            "consent": ["consent", "opt-in", "opt-out", "withdrawal", "agreement"],
+            "rights": ["rights", "access", "rectification", "erasure", "portability", "objection"],
+            "lawful-basis": ["lawful basis", "legitimate interest", "contract", "legal obligation", "vital interest"],
+            "special-categories": ["special category", "sensitive data", "health data", "biometric", "genetic"],
+            "risk-assessment": ["risk assessment", "impact assessment", "dpia", "pia", "risk management"],
+            "training": ["training", "awareness", "education", "staff training", "employee training"],
+            "documentation": ["documentation", "records", "policy", "procedure", "register"],
+            "penalties": ["penalty", "fine", "sanction", "enforcement", "violation", "breach"]
+        }
+        
+        # Geographic tags
+        geographic_keywords = {
+            "us": ["united states", "usa", "american", "federal"],
+            "eu": ["european union", "eu", "europe", "member state"],
+            "china": ["china", "chinese", "prc", "people's republic"],
+            "uk": ["united kingdom", "uk", "britain", "british"],
+            "germany": ["germany", "german", "deutschland"],
+            "france": ["france", "french"]
+        }
+        
+        # Apply all keyword categories
+        all_keyword_categories = [operation_keywords, tech_keywords, regulatory_keywords, geographic_keywords]
+        
+        for keyword_dict in all_keyword_categories:
+            for tag, keywords in keyword_dict.items():
+                if any(keyword in text_to_analyze for keyword in keywords):
+                    tags.add(tag)
+        
+        # Framework-specific tags
+        framework_tags = {
+            "GDPR": ["gdpr-compliance", "data-protection"],
+            "NIS2": ["nis2-compliance", "essential-entities"],
+            "DORA": ["dora-compliance", "financial-resilience"],
+            "CER": ["cer-compliance", "critical-infrastructure"],
+            "EXEC_ORDER": ["executive-orders", "federal-compliance"]
+        }
+        
+        for framework in frameworks_analyzed:
+            if framework in framework_tags:
+                tags.update(framework_tags[framework])
+        
+        # Industry-specific context tags based on question content
+        if "bank" in text_to_analyze or "financial institution" in text_to_analyze:
+            tags.add("banking")
+        if "hospital" in text_to_analyze or "healthcare provider" in text_to_analyze:
+            tags.add("healthcare-provider")
+        if "energy" in text_to_analyze or "utility" in text_to_analyze:
+            tags.add("energy-sector")
+        
+        return sorted(list(tags))
+    
+    def get_topic_tag_trends(self, email: str, limit: int = 20) -> Dict[str, int]:
+        """Get trending topic tags for a user"""
+        interactions = self.get_user_interactions(email, limit=limit)
+        tag_counts = {}
+        
+        for interaction in interactions:
+            if hasattr(interaction, 'topic_tags') and interaction.topic_tags:
+                for tag in interaction.topic_tags:
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        
+        # Sort by frequency, descending
+        return dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True))
