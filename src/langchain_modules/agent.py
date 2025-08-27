@@ -389,6 +389,82 @@ class AIAgent:
             print(f"❌ Error creating {framework_name} vector store: {e}")
             return self._create_vector_store_batch_processing(docs, store_path, framework_name)
     
+    def _expand_query_universal(self, original_query: str, framework: str, user_profile: dict = None) -> str:
+        """
+        Universal AI-powered query expansion that dynamically generates context-aware terms
+        for any regulatory framework based on the user's query and profile.
+        """
+        
+        # Framework-specific context mapping
+        framework_contexts = {
+            "GDPR": "data protection, privacy rights, personal data processing, cross-border transfers, consent management, data controller obligations",
+            "NIS2": "cybersecurity, network security, incident reporting, essential services, digital infrastructure, cyber resilience", 
+            "DORA": "operational resilience, financial services, ICT risk management, third-party providers, business continuity",
+            "CER": "critical infrastructure, essential entities, resilience measures, security requirements, operational continuity",
+            "EXEC_ORDER": "presidential directives, federal compliance, trade restrictions, national security, regulatory compliance"
+        }
+        
+        # Build context for expansion
+        context_parts = [
+            f"Original question: {original_query}",
+            f"Regulatory framework: {framework}",
+            f"Framework focus: {framework_contexts.get(framework, 'regulatory compliance')}"
+        ]
+        
+        # Add user context if available
+        if user_profile:
+            if user_profile.get('industry'):
+                context_parts.append(f"User industry: {user_profile['industry']}")
+            if user_profile.get('company'):
+                context_parts.append(f"Company context: {user_profile['company']}")
+            if user_profile.get('country'):
+                context_parts.append(f"Country: {user_profile['country']}")
+            if user_profile.get('regulatory_focus'):
+                context_parts.append(f"Previous regulatory interests: {', '.join(user_profile['regulatory_focus'])}")
+        
+        # Create expansion prompt
+        expansion_prompt = f"""
+Based on the following context, generate 8-12 relevant technical and regulatory terms that would improve document retrieval for this {framework} query. Focus on:
+
+1. Industry-specific terminology related to the user's business
+2. Regulatory concepts and legal terminology
+3. Technical terms and operational aspects
+4. Cross-references to related compliance areas
+5. Business process terminology
+6. Geographic and jurisdictional terms if relevant
+
+Context:
+{' | '.join(context_parts)}
+
+Generate only the expansion terms as a comma-separated list, no explanations:
+"""
+
+        try:
+            # Use the LLM to generate dynamic expansion terms
+            response = self.llm.invoke(expansion_prompt)
+            expansion_terms_text = response.content.strip()
+            
+            # Parse the response and clean up terms
+            expansion_terms = [term.strip() for term in expansion_terms_text.split(',')]
+            expansion_terms = [term for term in expansion_terms if term and len(term) > 2]
+            
+            # Limit to reasonable number of terms
+            expansion_terms = expansion_terms[:10]
+            
+            # Create expanded query
+            if expansion_terms:
+                expanded_query = f"{original_query} {' '.join(expansion_terms)}"
+            else:
+                # Fallback to basic framework context
+                expanded_query = f"{original_query} {framework_contexts.get(framework, 'regulatory compliance')}"
+                
+        except Exception as e:
+            print(f"⚠️ Error in universal query expansion: {e}")
+            # Fallback to basic framework context
+            expanded_query = f"{original_query} {framework_contexts.get(framework, 'regulatory compliance')}"
+        
+        return expanded_query
+
     def _load_and_process_exec_order_documents(self, data_dir: str, framework_name: str = "EXEC_ORDER") -> List[Document]:
         """Load and process multiple Executive Order PDF documents from a directory"""
         from langchain_community.document_loaders import PyPDFLoader
@@ -451,109 +527,6 @@ class AIAgent:
         print(f"✅ Total Executive Order chunks loaded: {len(docs)}")
         return docs
     
-    def _expand_query_for_exec_orders(self, original_query: str, user_profile: dict = None) -> str:
-        """Expand user query with relevant context for better Executive Order retrieval"""
-        
-        # Base expansion terms based on common executive order topics
-        expansion_terms = []
-        
-        # Analyze query for key topics and add relevant terms
-        query_lower = original_query.lower()
-        
-        # China-related expansions
-        if 'china' in query_lower or 'chinese' in query_lower:
-            expansion_terms.extend([
-                "People's Republic of China", "PRC", "Chinese entities", 
-                "trade restrictions", "technology transfer", "export controls",
-                "foreign investment", "supply chain", "national security",
-                "tariffs", "sanctions", "critical technology"
-            ])
-        
-        # Business expansion terms
-        if any(term in query_lower for term in ['expand', 'expansion', 'international', 'foreign']):
-            expansion_terms.extend([
-                "international operations", "foreign operations", 
-                "cross-border", "overseas business", "foreign investment",
-                "international trade", "global operations"
-            ])
-        
-        # Technology and cybersecurity terms
-        if user_profile and user_profile.get('industry') in ['Technology/Software', 'government']:
-            expansion_terms.extend([
-                "cybersecurity", "technology export", "critical infrastructure",
-                "information security", "data protection", "AI governance"
-            ])
-        
-        # Government contractor specific terms
-        if user_profile and ('government' in user_profile.get('industry', '').lower() or 
-                            'defense' in user_profile.get('company', '').lower()):
-            expansion_terms.extend([
-                "federal contractor", "government contracting", "federal procurement",
-                "defense contractor", "national security contractor"
-            ])
-        
-        # Financial services terms
-        if user_profile and 'financial' in user_profile.get('industry', '').lower():
-            expansion_terms.extend([
-                "financial services", "banking", "payment systems",
-                "digital assets", "cryptocurrency", "financial institutions"
-            ])
-        
-        # Create expanded query
-        if expansion_terms:
-            # Remove duplicates and limit to most relevant terms
-            unique_terms = list(dict.fromkeys(expansion_terms))[:8]
-            expanded_query = f"{original_query} {' '.join(unique_terms)}"
-        else:
-            # Fallback expansion for executive orders
-            expanded_query = f"{original_query} executive order presidential directive federal regulation compliance"
-        
-        return expanded_query
-    
-    def _expand_query_for_gdpr(self, original_query: str, user_profile: dict = None) -> str:
-        """Expand user query with relevant context for better GDPR retrieval"""
-        
-        expansion_terms = []
-        query_lower = original_query.lower()
-        
-        # Cross-border/international terms
-        if any(term in query_lower for term in ['china', 'expand', 'international', 'cross-border', 'transfer']):
-            expansion_terms.extend([
-                "cross-border data transfer", "third country transfer", "adequacy decision",
-                "standard contractual clauses", "data transfer mechanisms",
-                "international data processing", "data export", "data localization"
-            ])
-        
-        # Industry-specific terms
-        if user_profile:
-            industry = user_profile.get('industry', '').lower()
-            if 'government' in industry:
-                expansion_terms.extend([
-                    "public sector", "government processing", "public authority",
-                    "official authority", "public task", "lawful basis"
-                ])
-            elif 'financial' in industry:
-                expansion_terms.extend([
-                    "financial data", "payment processing", "customer due diligence",
-                    "anti-money laundering", "financial services"
-                ])
-            elif 'healthcare' in industry:
-                expansion_terms.extend([
-                    "health data", "medical records", "patient data", "health information"
-                ])
-        
-        # General GDPR terms if no specific context
-        if not expansion_terms:
-            expansion_terms = [
-                "personal data processing", "data protection", "privacy rights",
-                "consent", "legitimate interest", "data controller"
-            ]
-        
-        # Create expanded query
-        unique_terms = list(dict.fromkeys(expansion_terms))[:6]
-        expanded_query = f"{original_query} {' '.join(unique_terms)}"
-        
-        return expanded_query
     
     @track(name="document_retrieval")
     def _create_retrieval_node(self, state: AgentState):
@@ -602,9 +575,9 @@ class AIAgent:
         user_context = self.user_memory.get_user_context(self.current_user_email)
         user_profile = user_context.get('profile')
         
-        # Generate expanded query for better retrieval
-        expanded_query = self._expand_query_for_gdpr(state["question"], user_profile)
-        print(f"🔍 Expanded query: {expanded_query}")
+        # Generate expanded query for better retrieval using universal expansion
+        expanded_query = self._expand_query_universal(state["question"], "GDPR", user_profile)
+        print(f"🔍 Expanded GDPR query: {expanded_query}")
         
         # Retrieve GDPR documents with expanded query
         retriever = self.gdpr_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
@@ -632,9 +605,17 @@ class AIAgent:
         print(f"\n🔒 NIS2 ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
         
-        # Retrieve NIS2 documents
+        # Get user context for query expansion
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        # Generate expanded query for better retrieval using universal expansion
+        expanded_query = self._expand_query_universal(state["question"], "NIS2", user_profile)
+        print(f"🔍 Expanded NIS2 query: {expanded_query}")
+        
+        # Retrieve NIS2 documents with expanded query
         retriever = self.nis2_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        docs = retriever.invoke(state["question"])
+        docs = retriever.invoke(expanded_query)
         print(f"📄 NIS2 analysis: {len(docs)} documents retrieved")
         
         # Generate NIS2-specific response
@@ -655,10 +636,21 @@ class AIAgent:
     
     @track(name="dora_analysis")
     def _create_dora_analysis_node(self, state: AgentState):
-        # Retrieve DORA documents
+        print(f"\n🏦 DORA ANALYSIS NODE EXECUTING")
+        print(f"📝 Question: {state['question']}")
+        
+        # Get user context for query expansion
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        # Generate expanded query for better retrieval using universal expansion
+        expanded_query = self._expand_query_universal(state["question"], "DORA", user_profile)
+        print(f"🔍 Expanded DORA query: {expanded_query}")
+        
+        # Retrieve DORA documents with expanded query
         retriever = self.dora_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        docs = retriever.invoke(state["question"])
-        print(f"🏦 DORA analysis: {len(docs)} documents found")
+        docs = retriever.invoke(expanded_query)
+        print(f"📄 DORA analysis: {len(docs)} documents retrieved")
         
         # Generate DORA-specific response
         model_response_with_structure = self.llm.with_structured_output(RagGenerationResponse)
@@ -681,9 +673,17 @@ class AIAgent:
         print(f"\n🏗️ CER ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
         
-        # Retrieve CER documents
+        # Get user context for query expansion
+        user_context = self.user_memory.get_user_context(self.current_user_email)
+        user_profile = user_context.get('profile')
+        
+        # Generate expanded query for better retrieval using universal expansion
+        expanded_query = self._expand_query_universal(state["question"], "CER", user_profile)
+        print(f"🔍 Expanded CER query: {expanded_query}")
+        
+        # Retrieve CER documents with expanded query
         retriever = self.cer_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        docs = retriever.invoke(state["question"])
+        docs = retriever.invoke(expanded_query)
         print(f"📄 CER analysis: {len(docs)} documents retrieved")
         
         # Generate CER-specific response
@@ -711,9 +711,9 @@ class AIAgent:
         user_context = self.user_memory.get_user_context(self.current_user_email)
         user_profile = user_context.get('profile')
         
-        # Generate expanded query for better retrieval
-        expanded_query = self._expand_query_for_exec_orders(state["question"], user_profile)
-        print(f"🔍 Expanded query: {expanded_query}")
+        # Generate expanded query for better retrieval using universal expansion
+        expanded_query = self._expand_query_universal(state["question"], "EXEC_ORDER", user_profile)
+        print(f"🔍 Expanded Executive Order query: {expanded_query}")
         
         # Retrieve Executive Order documents with expanded query
         retriever = self.exec_order_vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
