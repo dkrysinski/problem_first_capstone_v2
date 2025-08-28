@@ -528,7 +528,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         return docs
     
     
-    @track(name="document_retrieval")
+    @track(name="document_retrieval", project_name="RegTechAI-v2")
     def _create_retrieval_node(self, state: AgentState):
         retriever = self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
         
@@ -566,7 +566,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         
         return {"retrieved_docs": docs}
     
-    @track(name="gdpr_analysis")
+    @track(name="gdpr_analysis", project_name="RegTechAI-v2")
     def _create_gdpr_analysis_node(self, state: AgentState):
         print(f"\n🏛️ GDPR ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
@@ -600,7 +600,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         
         return {"gdpr_docs": docs}
     
-    @track(name="nis2_analysis")
+    @track(name="nis2_analysis", project_name="RegTechAI-v2")
     def _create_nis2_analysis_node(self, state: AgentState):
         print(f"\n🔒 NIS2 ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
@@ -634,7 +634,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         
         return {"nis2_docs": docs}
     
-    @track(name="dora_analysis")
+    @track(name="dora_analysis", project_name="RegTechAI-v2")
     def _create_dora_analysis_node(self, state: AgentState):
         print(f"\n🏦 DORA ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
@@ -668,7 +668,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         
         return {"dora_docs": docs}
     
-    @track(name="cer_analysis")
+    @track(name="cer_analysis", project_name="RegTechAI-v2")
     def _create_cer_analysis_node(self, state: AgentState):
         print(f"\n🏗️ CER ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
@@ -702,7 +702,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         
         return {"cer_docs": docs}
     
-    @track(name="exec_order_analysis")
+    @track(name="exec_order_analysis", project_name="RegTechAI-v2")
     def _create_exec_order_analysis_node(self, state: AgentState):
         print(f"\n🇺🇸 EXECUTIVE ORDER ANALYSIS NODE EXECUTING")
         print(f"📝 Question: {state['question']}")
@@ -793,7 +793,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         print(f"\n🎯 FINAL ROUTING DECISION: {applicable_frameworks}")
         return applicable_frameworks
     
-    @track(name="classify_regulation_types")
+    @track(name="classify_regulation_types", project_name="RegTechAI-v2")
     def _create_classification_node(self, state: AgentState):
         print(f"\n🔍 CLASSIFICATION DEBUG:")
         print(f"📝 Input question: {state['question']}")
@@ -897,7 +897,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         print(f"\n✅ CLASSIFICATION FINAL RESULT: {result}")
         return result
     
-    @track(name="synthesis")
+    @track(name="synthesis", project_name="RegTechAI-v2")
     def _create_synthesis_node(self, state: AgentState):
         """Combine all framework analyses and documents for final synthesis"""
         print(f"\n🔄 SYNTHESIS NODE EXECUTING")
@@ -995,7 +995,7 @@ Generate only the expansion terms as a comma-separated list, no explanations:
         print(f"✅ Returning synthesis document to answering node")
         return {"retrieved_docs": [synthesis_doc]}
     
-    @track(name="rejection")
+    @track(name="rejection", project_name="RegTechAI-v2")
     def _create_rejection_node(self, state: AgentState):
         """Handle off-topic questions with polite rejection"""
         print(f"\n🚫 REJECTION NODE EXECUTING")
@@ -1018,7 +1018,7 @@ Please feel free to ask about regulatory compliance requirements for your busine
         print(f"🔄 Generated rejection message")
         return {"answer": rejection_message}
     
-    @track(name="answer_generation")
+    @track(name="answer_generation", project_name="RegTechAI-v2")
     def _create_answering_node(self, state: AgentState):
         print(f"\n🤖 ANSWER GENERATION DEBUG:")
         print(f"📝 Question: {state['question']}")
